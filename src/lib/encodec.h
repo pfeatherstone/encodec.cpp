@@ -26,7 +26,7 @@ namespace encodec
         encoder(encoder&& other);
         encoder& operator=(encoder&& other);
 
-        std::span<const float> encode(std::span<const float> audio, unsigned int num_quantizers);
+        std::span<const uint8_t> encode(std::span<const float> audio, unsigned int num_quantizers);
     };
 
 //----------------------------------------------------------------------------------------------------------------

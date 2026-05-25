@@ -425,10 +425,6 @@ namespace encodec
         {
             const size_t H = h.size();
             gates.noalias() = wih*x_t + whh*h + bias;
-            // TRY THE FOLLOWING
-            // gates.noalias() = wih * x_t;
-            // gates.noalias() += whh * h;
-            // gates += bias;
             auto i = gates.segment(0 * H, H).array();
             auto f = gates.segment(1 * H, H).array();
             auto g = gates.segment(2 * H, H).array();
@@ -555,6 +551,9 @@ namespace encodec
         encoder_block b3;
         encoder_block b4;
         encodec_lstm  b5;
+        conv          b6;
+        std::vector<uint16_t> codes;
+        std::vector<uint8_t>  buf;
 
         impl()
         : b0(  1,  32, 7),
@@ -562,7 +561,8 @@ namespace encodec
           b2( 64, 128, 4),
           b3(128, 256, 5),
           b4(256, 512, 8),
-          b5(512)
+          b5(512),
+          b6(512, 128, 7)
         {
             auto weights = encoder_weights;
             weights = b0.load_state_dict(weights);
@@ -571,29 +571,32 @@ namespace encodec
             weights = b3.load_state_dict(weights);
             weights = b4.load_state_dict(weights);
             weights = b5.load_state_dict(weights);
-            printf("left over weights %zu\n", weights.size());
+            weights = b6.load_state_dict(weights);
+            assert(weights.size()==0);
         }
 
-        std::span<const float> encode(std::span<const float> audio, unsigned int num_quantizers)
+        std::span<const uint8_t> encode(std::span<const float> audio, unsigned int num_quantizers)
         {
             assert(num_quantizers >= 1 && num_quantizers <= NLEVELS);
 
+            // Run encoder
             auto x = b0(audio, identity);
             x      = b1(x);
             x      = b2(x);
             x      = b3(x);
             x      = b4(x);
             x      = b5(x);
-            return x;
+            x      = b6(x, elu());
 
-            // // Run RVQ
-            // codes.resize(nfeats*num_quantizers);
-            // rvq_encode(feats, codes, num_quantizers);
+            // Run RVQ
+            const size_t nfeats = x.size() / CODEBOOK_DIM;
+            codes.resize(nfeats*num_quantizers);
+            rvq_encode(x, codes, num_quantizers);
 
-            // // Pack codes
-            // buf.resize((codes.size()*10 + 7) / 8);
-            // pack_codes(codes, buf);
-            // return buf;
+            // Pack codes
+            buf.resize((codes.size()*10 + 7) / 8);
+            pack_codes(codes, buf);
+            return buf;
         }
     };
 
@@ -653,7 +656,7 @@ namespace encodec
     encoder::encoder(encoder&& other)            = default;
     encoder& encoder::operator=(encoder&& other) = default;
 
-    std::span<const float> encoder::encode(std::span<const float> audio, unsigned int num_quantizers)
+    std::span<const uint8_t> encoder::encode(std::span<const float> audio, unsigned int num_quantizers)
     {
         return state->encode(audio, num_quantizers);
     }
