@@ -61,7 +61,7 @@ int main()
     encodec::decoder dec;
 
     printf("Testing on birch canoe...\n");
-    // test_birch_canoe(enc, dec, 24000);
+    test_birch_canoe(enc, dec, 24000);
     // test_birch_canoe(enc, dec, 12000);
     // test_birch_canoe(enc, dec, 6000);
     // test_birch_canoe(enc, dec, 3000);

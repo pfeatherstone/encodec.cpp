@@ -322,10 +322,10 @@ namespace encodec
         {
             // input  shape [T,nin]
             // output shape [T//s,nout]
-            const size_t Tin  = input.size() / nin;
-            const size_t Tout = Tin / s;
             const size_t p    = pad();
+            const size_t Tin  = input.size() / nin;
             const size_t Tinp = Tin+p;
+            const size_t Tout = (Tinp - k) / s + 1;
             scratch_in.resize(Tinp*nin);
             scratch_out.resize(Tout*nout);
 

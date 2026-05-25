@@ -1,10 +1,8 @@
 #pragma once
 
 #include <cstdint>
-#include <cassert>
 #include <span>
 #include <memory>
-#include "incbin.h"
 
 namespace encodec
 {
