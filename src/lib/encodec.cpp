@@ -5,6 +5,7 @@
 #include <limits>
 #include <numeric>
 #include <algorithm>
+#include <Eigen/Dense>
 #include "encodec.h"
 #include "incbin.h"
 #if defined(__AVX2__)
@@ -13,41 +14,23 @@
 
 //----------------------------------------------------------------------------------------------------------------
 
+using MatrixXf = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>;
+using VectorXf = Eigen::Vector<float, -1>;
+
+//----------------------------------------------------------------------------------------------------------------
+
 INCBIN(encoder, ENCODER_DATA);
 INCBIN(rvq,     RVQ_DATA);
+
+//----------------------------------------------------------------------------------------------------------------
 
 namespace encodec
 {
 
 //----------------------------------------------------------------------------------------------------------------
-
-    const std::span encoder_weights{(const float*)gencoderData, gencoderSize/sizeof(float)};
-    const std::span rvq_weights{(const float*)grvqData, grvqSize/sizeof(float)};
-
 //----------------------------------------------------------------------------------------------------------------
-
-    constexpr double    SAMPLE_RATE     = 24000;
-    constexpr unsigned  STRIDE          = 320;
-    constexpr unsigned  NLEVELS         = 32;
-    constexpr unsigned  CODEBOOK_SIZE   = 1024;
-    constexpr unsigned  CODEBOOK_DIM    = 128;
-
+// MATH
 //----------------------------------------------------------------------------------------------------------------
-
-    unsigned int get_encodec_bps(unsigned int nlevels)      { return (SAMPLE_RATE / STRIDE) * nlevels * 10; }
-    unsigned int get_encoded_nquantizers(unsigned int bps)  { return (bps / 10) * STRIDE / SAMPLE_RATE; }
-
-//----------------------------------------------------------------------------------------------------------------
-
-    auto get_rvq_row(size_t level, size_t codebook_idx)
-    {
-        assert(NLEVELS*CODEBOOK_SIZE*CODEBOOK_DIM == rvq_weights.size());
-        assert(level        < NLEVELS);
-        assert(codebook_idx < CODEBOOK_SIZE);
-        const size_t index = (level*CODEBOOK_SIZE + codebook_idx)*CODEBOOK_DIM;
-        return rvq_weights.subspan(index, CODEBOOK_DIM);
-    }
-
 //----------------------------------------------------------------------------------------------------------------
 
     constexpr void subtract(std::span<const float> a, std::span<const float> b, std::span<float> c)
@@ -71,7 +54,7 @@ namespace encodec
 //----------------------------------------------------------------------------------------------------------------
 
 #if defined(__AVX2__)
-    inline static float dot(const float* a, const float* b, const size_t len)
+    inline float dot(const float* a, const float* b, const size_t len)
     {
         const size_t len0 = (len/32)*32;
         const size_t len1 = (len/8)*8;
@@ -149,23 +132,39 @@ namespace encodec
     } 
 
 //----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+// CONSTANTS
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+    
+    constexpr double    SAMPLE_RATE     = 24000;
+    constexpr unsigned  STRIDE          = 320;
+    constexpr unsigned  NLEVELS         = 32;
+    constexpr unsigned  CODEBOOK_SIZE   = 1024;
+    constexpr unsigned  CODEBOOK_DIM    = 128;
 
-    constexpr void elu_(std::span<const float> in, std::span<float> out, const float alpha=1.0)
-    {
-        for (size_t i{0} ; i < in.size() ; ++i)
-            out[i] = in[i] > 0 ? in[i] : alpha*(std::exp(in[i])-1);
-    }
+    static const std::span encoder_weights{(const float*)gencoderData, gencoderSize/sizeof(float)};
+    static const std::span rvq_weights    {(const float*)grvqData,     grvqSize/sizeof(float)};
 
-    constexpr auto elu(const float alpha=1.0) 
-    {
-        return [=](std::span<float> buf) {
-            elu_(buf, buf, alpha);
-        };
-    }
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+// RVQ
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+    
+    unsigned int get_encodec_bps(unsigned int nlevels)      { return (SAMPLE_RATE / STRIDE) * nlevels * 10; }
+    unsigned int get_encoded_nquantizers(unsigned int bps)  { return (bps / 10) * STRIDE / SAMPLE_RATE; }
 
 //----------------------------------------------------------------------------------------------------------------
 
-    constexpr auto identity = [](auto buf) {/*no-op*/};
+    auto get_rvq_row(size_t level, size_t codebook_idx)
+    {
+        assert(NLEVELS*CODEBOOK_SIZE*CODEBOOK_DIM == rvq_weights.size());
+        assert(level        < NLEVELS);
+        assert(codebook_idx < CODEBOOK_SIZE);
+        const size_t index = (level*CODEBOOK_SIZE + codebook_idx)*CODEBOOK_DIM;
+        return rvq_weights.subspan(index, CODEBOOK_DIM);
+    }
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -284,7 +283,42 @@ namespace encodec
     }
 
 //----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+// ACTIVATIONS
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+    
+    constexpr void elu_(std::span<const float> in, std::span<float> out, const float alpha=1.0)
+    {
+        for (size_t i{0} ; i < in.size() ; ++i)
+            out[i] = in[i] > 0 ? in[i] : alpha*(std::exp(in[i])-1);
+    }
 
+    constexpr auto elu = [](const float alpha=1.0) 
+    {
+        return [=](std::span<float> buf) {
+            elu_(buf, buf, alpha);
+        };
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    constexpr auto identity = [](auto buf) {/*no-op*/};
+
+//----------------------------------------------------------------------------------------------------------------
+
+    template <class Derived>
+    auto sigmoid(const Eigen::ArrayBase<Derived>& x)
+    {
+        return (1.0f + (-x).exp()).inverse();
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+// NN
+//----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+   
     struct conv
     {
         size_t              nin{};
@@ -357,6 +391,105 @@ namespace encodec
 
 //----------------------------------------------------------------------------------------------------------------
 
+    struct lstm_cell
+    {
+        MatrixXf wih;
+        MatrixXf whh;
+        VectorXf bias;
+        VectorXf gates;
+
+        lstm_cell(size_t input_size, size_t hidden_size)
+        : wih(4*hidden_size, input_size),
+          whh(4*hidden_size, hidden_size),
+          bias(4*hidden_size),
+          gates(4*hidden_size)
+        {
+        }
+
+        auto load_state_dict(std::span<const float> data) -> std::span<const float>
+        {
+            const size_t total_weights = wih.size()+whh.size()+bias.size()*2;
+            if (data.size() < total_weights) throw std::runtime_error("Not enough data in weights");
+            size_t off{0};
+            auto wih_   = Eigen::Map<const MatrixXf>(data.subspan(off, wih.size()).data(), wih.rows(), wih.cols()); off += wih.size();
+            auto whh_   = Eigen::Map<const MatrixXf>(data.subspan(off, whh.size()).data(), whh.rows(), whh.cols()); off += whh.size();
+            auto bih_   = Eigen::Map<const VectorXf>(data.subspan(off, bias.size()).data(), bias.size());           off += bias.size();
+            auto bhh_   = Eigen::Map<const VectorXf>(data.subspan(off, bias.size()).data(), bias.size());           off += bias.size();
+            wih         = wih_;
+            whh         = whh_;
+            bias        = bih_ + bhh_;
+            return data.subspan(off);
+        }
+
+        void operator()(const VectorXf& x_t, VectorXf& h, VectorXf& c)
+        {
+            const size_t H = h.size();
+            gates.noalias() = wih*x_t + whh*h + bias;
+            // TRY THE FOLLOWING
+            // gates.noalias() = wih * x_t;
+            // gates.noalias() += whh * h;
+            // gates += bias;
+            auto i = gates.segment(0 * H, H).array();
+            auto f = gates.segment(1 * H, H).array();
+            auto g = gates.segment(2 * H, H).array();
+            auto o = gates.segment(3 * H, H).array();
+            c.array() = sigmoid(f) * c.array()  + sigmoid(i) * g.tanh();
+            h.array() = sigmoid(o) * c.array().tanh();
+        }   
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    struct encodec_lstm
+    {
+        size_t              nin{};
+        lstm_cell           cells[2];
+        VectorXf            h[2];
+        VectorXf            c[2];
+        VectorXf            y;
+
+        encodec_lstm(size_t dim)
+        : nin{dim},
+          cells{lstm_cell(dim,dim), lstm_cell(dim,dim)},
+          h{VectorXf(dim), VectorXf(dim)},
+          c{VectorXf(dim), VectorXf(dim)}
+        {
+        }
+
+        void reset_state()
+        {
+            for (auto& v : h) v.setZero();
+            for (auto& v : c) v.setZero();
+        }
+
+        auto load_state_dict(std::span<const float> data) -> std::span<const float>
+        {
+            data = cells[0].load_state_dict(data);
+            data = cells[1].load_state_dict(data);
+            return data;
+        }
+
+        std::span<float> operator()(std::span<const float> input)
+        {
+            const size_t T = input.size() / nin;
+            reset_state();
+            y.resize(input.size());
+
+            for (size_t t{0}; t < T; ++t)
+            {
+                auto x_t = Eigen::Map<const VectorXf>(input.subspan(t*nin, nin).data(), nin);
+                cells[0](x_t,  h[0], c[0]);
+                cells[1](h[0], h[1], c[1]);
+                auto y_t = y.segment(t*nin, nin);
+                y_t = x_t + h[1];
+            }
+
+            return std::span<float>{y.data(), static_cast<size_t>(y.size())};
+        }
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
     struct resnet_block
     {
         conv b0;
@@ -408,9 +541,7 @@ namespace encodec
 
         std::span<float> operator()(std::span<const float> input)
         {
-            auto x = b0(input);
-            x      = b1(x, elu());
-            return x;
+            return b1(b0(input), elu());
         }
     };
 
@@ -423,14 +554,15 @@ namespace encodec
         encoder_block b2;
         encoder_block b3;
         encoder_block b4;
+        encodec_lstm  b5;
 
         impl()
         : b0(  1,  32, 7),
           b1( 32,  64, 2),
           b2( 64, 128, 4),
           b3(128, 256, 5),
-          b4(256, 512, 8)
-        
+          b4(256, 512, 8),
+          b5(512)
         {
             auto weights = encoder_weights;
             weights = b0.load_state_dict(weights);
@@ -438,6 +570,7 @@ namespace encodec
             weights = b2.load_state_dict(weights);
             weights = b3.load_state_dict(weights);
             weights = b4.load_state_dict(weights);
+            weights = b5.load_state_dict(weights);
             printf("left over weights %zu\n", weights.size());
         }
 
@@ -450,6 +583,7 @@ namespace encodec
             x      = b2(x);
             x      = b3(x);
             x      = b4(x);
+            x      = b5(x);
             return x;
 
             // // Run RVQ
