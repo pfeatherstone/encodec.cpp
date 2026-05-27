@@ -47,12 +47,20 @@ void test_birch_canoe(encodec::encoder& enc, encodec::decoder& dec, unsigned int
     const auto nlevels = encodec::get_encoded_nquantizers(bps);
     const auto audio   = load_file<float>("original.dat");
     const auto feats = enc.encode(audio, nlevels);
-    save_file("feats.dat", feats);
+    save_file("encoder_data.dat", feats);
     printf("naudio %zu nfeats %zu\n", audio.size(), feats.size());
     // const auto packets = enc.encode(audio, nlevels);
     // const auto audio2  = dec.decode(packets, nlevels);
     // save_file(std::format("codes_{}bps_{}nquants.dat", bps, nlevels).c_str(),  packets);
     // save_file(std::format("encoded_{}bps_{}nquants.dat", bps, nlevels).c_str(), audio2);
+}
+
+void test_decoder(encodec::decoder& dec, unsigned int bps)
+{
+    const auto nlevels = encodec::get_encoded_nquantizers(bps);
+    const auto data = load_file<float>("decoder_data.dat");
+    const auto feats = dec.decode(data, nlevels);
+    save_file("feats.dat", feats);
 }
 
 int main()
@@ -67,6 +75,10 @@ int main()
     // test_birch_canoe(enc, dec, 3000);
     printf("Testing on birch canoe... Done\n");
 
+    // printf("Testing decoder...\n");
+    // test_decoder(dec, 24000);
+    // printf("Testing decoder...Done\n");
+
     float audio[24000];
     memset(audio, 0, sizeof(audio));
     auto packet = enc.encode(audio, 32);
@@ -77,6 +89,13 @@ int main()
         packet = enc.encode(audio, 32);
     const auto s1 = high_resolution_clock::now();
     printf("Encoding rate %f encoded %zu samples into %zu feats\n", (std::size(audio)*ntests)/((s1-s0).count()*1e-9), std::size(audio), packet.size());
+
+    // const auto s2 = high_resolution_clock::now();
+    // std::span<const float> audio2;
+    // for (size_t i{0} ; i < ntests ; ++i)
+    //     audio2 = dec.decode(packet, 32);
+    // const auto s3 = high_resolution_clock::now();
+    // printf("Decoding rate %f %zu bits into decoded %zu samples\n", (std::size(audio2)*ntests)/((s3-s2).count()*1e-9), packet.size()*8, audio2.size());
 
     return 0;
 }

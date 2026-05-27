@@ -20,6 +20,7 @@ using VectorXf = Eigen::Vector<float, -1>;
 //----------------------------------------------------------------------------------------------------------------
 
 INCBIN(encoder, ENCODER_DATA);
+INCBIN(decoder, DECODER_DATA);
 INCBIN(rvq,     RVQ_DATA);
 
 //----------------------------------------------------------------------------------------------------------------
@@ -144,6 +145,7 @@ namespace encodec
     constexpr unsigned  CODEBOOK_DIM    = 128;
 
     static const std::span encoder_weights{(const float*)gencoderData, gencoderSize/sizeof(float)};
+    static const std::span decoder_weights{(const float*)gdecoderData, gdecoderSize/sizeof(float)};
     static const std::span rvq_weights    {(const float*)grvqData,     grvqSize/sizeof(float)};
 
 //----------------------------------------------------------------------------------------------------------------
@@ -287,23 +289,36 @@ namespace encodec
 // ACTIVATIONS
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
-    
+
     constexpr void elu_(std::span<const float> in, std::span<float> out, const float alpha=1.0)
     {
         for (size_t i{0} ; i < in.size() ; ++i)
             out[i] = in[i] > 0 ? in[i] : alpha*(std::exp(in[i])-1);
     }
 
-    constexpr auto elu = [](const float alpha=1.0) 
+    struct elu
     {
-        return [=](std::span<float> buf) {
-            elu_(buf, buf, alpha);
-        };
+        bool                inplace{};
+        float               alpha{};
+        std::vector<float>  tmp;
+
+        elu(bool inplace_, float alpha_ = 1.0) : inplace{inplace_}, alpha{alpha_} {}
+
+        std::span<float> operator()(std::span<float> input)
+        {
+            if (inplace)
+            {
+                elu_(input, input, alpha);
+                return input;
+            }
+            else
+            {
+                tmp.resize(input.size());
+                elu_(input, tmp, alpha);
+                return tmp;
+            }
+        }
     };
-
-//----------------------------------------------------------------------------------------------------------------
-
-    constexpr auto identity = [](auto buf) {/*no-op*/};
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -318,7 +333,45 @@ namespace encodec
 // NN
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
-   
+
+    struct linear
+    {
+        MatrixXf w;
+        VectorXf b;
+        MatrixXf out;
+
+        linear(size_t nin_, size_t nout_)
+        : w(nout_, nin_),
+          b(nout_)
+        {
+        }
+
+        auto load_weights(std::span<const float> data) -> std::span<const float>
+        {
+            if (data.size() < size_t(w.size() + b.size())) throw std::runtime_error("Not enough data in weights");
+            size_t off{0};
+            auto w_ = Eigen::Map<const MatrixXf>(data.subspan(off, w.size()).data(), nout(), nin()); off += w.size();
+            auto b_ = Eigen::Map<const VectorXf>(data.subspan(off, b.size()).data(), nout());        off += b.size();
+            w       = w_;
+            b       = b_;
+            return data.subspan(off);
+        }
+
+        size_t nin()  {return w.cols();}
+        size_t nout() {return w.rows();}
+
+        std::span<float> operator()(std::span<const float> input)
+        {
+            const size_t Tin = input.size() / nin();
+            auto x = Eigen::Map<const MatrixXf>(input.data(), Tin, nin());
+            out.noalias() = x * w.transpose() ;
+            out.rowwise() += b.transpose();
+            return std::span<float>{out.data(), static_cast<size_t>(out.size())};
+        }
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
     struct conv
     {
         size_t              nin{};
@@ -341,7 +394,7 @@ namespace encodec
           bias(nout)
         {}
 
-        auto load_state_dict(std::span<const float> data) -> std::span<const float>
+        auto load_weights(std::span<const float> data) -> std::span<const float>
         {
             if (data.size() < (weights.size() + bias.size())) throw std::runtime_error("Not enough data in weights");
             const auto w = data.subspan(0,              weights.size());
@@ -351,8 +404,7 @@ namespace encodec
             return data.subspan(weights.size()+bias.size());
         }
 
-        template<class PreAct>
-        std::span<float> operator()(std::span<const float> input, PreAct fn)
+        std::span<float> operator()(std::span<const float> input)
         {
             // input  shape [T,nin]
             // output shape [T//s,nout]
@@ -373,9 +425,6 @@ namespace encodec
             }
             std::copy(begin(input), end(input), begin(scratch_in)+p*nin);
 
-            // Pre-act
-            fn(scratch_in);
-
             // Conv
             size_t i{0};
             size_t j{0};
@@ -386,6 +435,86 @@ namespace encodec
 
             assert((j*nout)<=scratch_out.size());
             return scratch_out;
+        }
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    struct conv_transpose
+    {
+        size_t              nin{};
+        size_t              nout{};
+        size_t              k{};
+        size_t              s{};
+        size_t              d{1};
+        size_t              pad() {return d * (k - 1) + 1 - s;}
+        std::vector<float>  weights{};      // shape [nin,k,nout]
+        std::vector<float>  bias{};         // shape [nout]
+        std::vector<float>  scratch_in;     // shape [Tin,nin]
+        std::vector<float>  scratch_out;    // shape [Tout_padded,nout]
+
+        conv_transpose(size_t nin_, size_t nout_, size_t k_, size_t s_ = 1)
+        : nin{nin_}, 
+          nout{nout_}, 
+          k{k_}, 
+          s{s_}, 
+          weights(nout*nin*k),
+          bias(nout)
+        {}
+
+        auto load_weights(std::span<const float> data) -> std::span<const float>
+        {
+            if (data.size() < (weights.size() + bias.size())) throw std::runtime_error("Not enough data in weights");
+            const auto w = data.subspan(0,              weights.size());
+            const auto b = data.subspan(weights.size(), bias.size());
+            std::copy(begin(w), end(w), begin(weights));
+            std::copy(begin(b), end(b), begin(bias));
+            return data.subspan(weights.size()+bias.size());
+        }
+
+        std::span<float> operator()(std::span<const float> input)
+        {
+            // input  shape [Tin,nin]
+            // output shape [Tin*s,nout] for your EnCodec-style padding
+
+            const size_t p           = pad();
+            const size_t Tin         = input.size() / nin;
+            const size_t Tout_padded = (Tin - 1) * s + d * (k - 1) + 1;
+            const size_t Tout        = Tout_padded - p;
+
+            // Pre-act
+            scratch_in.assign(begin(input), end(input));
+            
+            // Scatter transposed convolution.
+            // out_padded[t*s + kk*d, co] += x[t,ci] * weight[ci,kk,co]
+            scratch_out.assign(Tout_padded * nout, 0.0f);
+
+            for (size_t t{0}; t < Tin; ++t)
+            {
+                for (size_t ci{0}; ci < nin; ++ci)
+                {
+                    const float x = scratch_in[t * nin + ci];
+
+                    for (size_t kk{0}; kk < k; ++kk)
+                    {
+                        const size_t to = t * s + kk * d;
+
+                        const float* w = &weights[(ci * k + kk) * nout];
+                        float*       y = &scratch_out[to * nout];
+
+                        for (size_t co{0}; co < nout; ++co)
+                            y[co] += x * w[co];
+                    }
+                }
+            }
+
+            // Add bias
+            for (size_t t{0}; t < Tout; ++t)
+                for (size_t co{0}; co < nout; ++co)
+                    scratch_out[t * nout + co] += bias[co];
+
+            auto out = std::span{scratch_out}.subspan(0, Tout*nout);
+            return out;
         }
     };
 
@@ -406,7 +535,7 @@ namespace encodec
         {
         }
 
-        auto load_state_dict(std::span<const float> data) -> std::span<const float>
+        auto load_weights(std::span<const float> data) -> std::span<const float>
         {
             const size_t total_weights = wih.size()+whh.size()+bias.size()*2;
             if (data.size() < total_weights) throw std::runtime_error("Not enough data in weights");
@@ -458,10 +587,10 @@ namespace encodec
             for (auto& v : c) v.setZero();
         }
 
-        auto load_state_dict(std::span<const float> data) -> std::span<const float>
+        auto load_weights(std::span<const float> data) -> std::span<const float>
         {
-            data = cells[0].load_state_dict(data);
-            data = cells[1].load_state_dict(data);
+            data = cells[0].load_weights(data);
+            data = cells[1].load_weights(data);
             return data;
         }
 
@@ -488,29 +617,32 @@ namespace encodec
 
     struct resnet_block
     {
-        conv b0;
-        conv b1;
-        conv b2;
+        elu     a0;
+        elu     a1;
+        conv    b0;
+        linear  b1;
+        linear  b2;
 
         resnet_block(size_t c)
-        : b0(c,   c/2, 3),
-          b1(c/2, c,   1),
-          b2(c,   c,   1)
+        : a0(false),
+          a1(true),
+          b0(c,   c/2, 3),
+          b1(c/2, c),
+          b2(c,   c)
         {}
 
-        auto load_state_dict(std::span<const float> data) -> std::span<const float>
+        auto load_weights(std::span<const float> data) -> std::span<const float>
         {
-            data = b0.load_state_dict(data);
-            data = b1.load_state_dict(data);
-            data = b2.load_state_dict(data);
+            data = b0.load_weights(data);
+            data = b1.load_weights(data);
+            data = b2.load_weights(data);
             return data;
         }
 
-        std::span<float> operator()(std::span<const float> input)
+        std::span<float> operator()(std::span<float> input)
         {
-            auto x = b0(input, elu());
-            x      = b1(x,     elu());
-            auto y = b2(input, identity);
+            auto x = b1(a1(b0(a0(input))));
+            auto y = b2(input);
             add(x, y, y);
             return y;
         }
@@ -521,27 +653,64 @@ namespace encodec
     struct encoder_block
     {
         resnet_block b0;
+        elu          a1;
         conv         b1;
 
         encoder_block(size_t c1, size_t c2, size_t s)
         : b0(c1),
+          a1(true),
           b1(c1, c2, s*2, s)
         {}
 
-        auto load_state_dict(std::span<const float> data) -> std::span<const float>
+        auto load_weights(std::span<const float> data) -> std::span<const float>
         {
-            data = b0.load_state_dict(data);
-            data = b1.load_state_dict(data);
+            data = b0.load_weights(data);
+            data = b1.load_weights(data);
+            return data;
+        }
+
+        std::span<float> operator()(std::span<float> input)
+        {
+            return b1(a1(b0(input)));
+        }
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    struct decoder_block
+    {
+        conv_transpose  b0;
+        resnet_block    b1;
+
+        decoder_block(size_t c1, size_t c2, size_t s)
+        : b0(c1, c2, s*2, s),
+          b1(c2)
+        {}
+
+        auto load_weights(std::span<const float> data) -> std::span<const float>
+        {
+            data = b0.load_weights(data);
+            data = b1.load_weights(data);
             return data;
         }
 
         std::span<float> operator()(std::span<const float> input)
         {
-            return b1(b0(input), elu());
+            return b1(b0(input));
         }
     };
 
 //----------------------------------------------------------------------------------------------------------------
+
+// def EncodecEncoder():
+//     return nn.Sequential(CausalConv1d(1, 32, 7),
+//                          EncodecEncoderBlock( 32,  64, s=2),
+//                          EncodecEncoderBlock( 64, 128, s=4),
+//                          EncodecEncoderBlock(128, 256, s=5),
+//                          EncodecEncoderBlock(256, 512, s=8),
+//                          EncodecLSTM(512, 2),
+//                          nn.ELU(), CausalConv1d(512, 128, 7),
+//                          Rearrange('b f n -> b n f'))
 
     struct encoder::impl
     {
@@ -551,6 +720,7 @@ namespace encodec
         encoder_block b3;
         encoder_block b4;
         encodec_lstm  b5;
+        elu           a6;
         conv          b6;
         std::vector<uint16_t> codes;
         std::vector<uint8_t>  buf;
@@ -562,41 +732,42 @@ namespace encodec
           b3(128, 256, 5),
           b4(256, 512, 8),
           b5(512),
+          a6(true),
           b6(512, 128, 7)
         {
             auto weights = encoder_weights;
-            weights = b0.load_state_dict(weights);
-            weights = b1.load_state_dict(weights);
-            weights = b2.load_state_dict(weights);
-            weights = b3.load_state_dict(weights);
-            weights = b4.load_state_dict(weights);
-            weights = b5.load_state_dict(weights);
-            weights = b6.load_state_dict(weights);
+            weights = b0.load_weights(weights);
+            weights = b1.load_weights(weights);
+            weights = b2.load_weights(weights);
+            weights = b3.load_weights(weights);
+            weights = b4.load_weights(weights);
+            weights = b5.load_weights(weights);
+            weights = b6.load_weights(weights);
             assert(weights.size()==0);
         }
 
-        std::span<const uint8_t> encode(std::span<const float> audio, unsigned int num_quantizers)
+        std::span<const float> encode(std::span<const float> audio, unsigned int num_quantizers)
         {
             assert(num_quantizers >= 1 && num_quantizers <= NLEVELS);
 
             // Run encoder
-            auto x = b0(audio, identity);
+            auto x = b0(audio);
             x      = b1(x);
             x      = b2(x);
             x      = b3(x);
             x      = b4(x);
             x      = b5(x);
-            x      = b6(x, elu());
+            x      = b6(a6(x));
+            return x;
+            // // Run RVQ
+            // const size_t nfeats = x.size() / CODEBOOK_DIM;
+            // codes.resize(nfeats*num_quantizers);
+            // rvq_encode(x, codes, num_quantizers);
 
-            // Run RVQ
-            const size_t nfeats = x.size() / CODEBOOK_DIM;
-            codes.resize(nfeats*num_quantizers);
-            rvq_encode(x, codes, num_quantizers);
-
-            // Pack codes
-            buf.resize((codes.size()*10 + 7) / 8);
-            pack_codes(codes, buf);
-            return buf;
+            // // Pack codes
+            // buf.resize((codes.size()*10 + 7) / 8);
+            // pack_codes(codes, buf);
+            // return buf;
         }
     };
 
@@ -604,48 +775,47 @@ namespace encodec
 
     struct decoder::impl
     {
-        // Ort::Session                        model;
-        // Ort::AllocatorWithDefaultOptions    alloc;
-        // Ort::Value                          output{nullptr};
-        std::vector<uint16_t>               codes;
-        std::vector<float>                  feats;
+        conv                    b0;
+        encodec_lstm            b1;
+        decoder_block           b2;
+        // std::vector<uint16_t>   codes;
+        // std::vector<float>      feats;
 
-        // impl() : model(default_env(), gdecoder_onnxData, gdecoder_onnxSize, create_default_options()) {}
-        
-        std::span<const float> decode(std::span<const uint8_t> packet, unsigned int num_quantizers)
+        impl()
+        : b0(128, 512, 7),
+          b1(512),
+          b2(512, 256, 8)
+        {
+            auto weights = decoder_weights;
+            weights = b0.load_weights(weights);
+            weights = b1.load_weights(weights);
+            weights = b2.load_weights(weights);
+            // assert(weights.size()==0);
+            printf("Leftover weights %zu\n", weights.size());
+        }
+
+        std::span<const float> decode(std::span<const float> feats, unsigned int num_quantizers)
         {
             assert(num_quantizers >= 1 && num_quantizers <= NLEVELS);
 
-            // Unpack bits
-            const size_t ncodes = (packet.size()*8)/10;
-            const size_t nfeats = ncodes/num_quantizers;
-            assert(ncodes % num_quantizers == 0);
-            codes.resize(ncodes);
-            unpack_bits(packet, codes);
+            // // Unpack bits
+            // const size_t ncodes = (packet.size()*8)/10;
+            // const size_t nfeats = ncodes/num_quantizers;
+            // assert(ncodes % num_quantizers == 0);
+            // codes.resize(ncodes);
+            // unpack_bits(packet, codes);
 
-            // RVQ
-            feats.resize(nfeats*CODEBOOK_DIM);
-            memset(&feats[0], 0, feats.size()*sizeof(float));
-            rvq_decode(codes, feats, num_quantizers);
+            // // RVQ
+            // feats.resize(nfeats*CODEBOOK_DIM);
+            // memset(&feats[0], 0, feats.size()*sizeof(float));
+            // rvq_decode(codes, feats, num_quantizers);
 
-            // // Decode
-            // const char* input_names[]   = {"feats"};
-            // const char* output_names[]  = {"audio"};
-            // const int64_t shape[]       = {1,(int64_t)nfeats, (int64_t)CODEBOOK_DIM};
-            // const auto meminfo          = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-            // Ort::Value inputs[]         = {Ort::Value::CreateTensor<float>(meminfo, feats.data(), feats.size(), shape, 3)};
+            // Run decoder
+            auto x = b0(feats);
+            x      = b1(x);
+            x      = b2(x);
 
-            // // Run encoder
-            // output = Ort::Value(nullptr);
-            // model.Run(Ort::RunOptions{nullptr}, input_names, inputs, 1, output_names, &output, 1);
-            // const auto   shape2  = output.GetTensorTypeAndShapeInfo().GetShape();
-            // const size_t naudio  = shape2[2];
-            // const float* audio   = output.GetTensorData<float>();
-            // assert(ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT == output.GetTensorTypeAndShapeInfo().GetElementType());
-
-            // return std::span{audio, naudio};
-
-            return {};
+            return x;
         }
     };
     
@@ -656,7 +826,7 @@ namespace encodec
     encoder::encoder(encoder&& other)            = default;
     encoder& encoder::operator=(encoder&& other) = default;
 
-    std::span<const uint8_t> encoder::encode(std::span<const float> audio, unsigned int num_quantizers)
+    std::span<const float> encoder::encode(std::span<const float> audio, unsigned int num_quantizers)
     {
         return state->encode(audio, num_quantizers);
     }
@@ -668,9 +838,9 @@ namespace encodec
     decoder::decoder(decoder&& other)            = default;
     decoder& decoder::operator=(decoder&& other) = default;
 
-    std::span<const float> decoder::decode(std::span<const uint8_t> packet, unsigned int num_quantizers)
+    std::span<const float> decoder::decode(std::span<const float> feats, unsigned int num_quantizers)
     {
-        return state->decode(packet, num_quantizers);
+        return state->decode(feats, num_quantizers);
     }
 
 //----------------------------------------------------------------------------------------------------------------

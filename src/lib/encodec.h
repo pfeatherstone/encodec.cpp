@@ -26,7 +26,7 @@ namespace encodec
         encoder(encoder&& other);
         encoder& operator=(encoder&& other);
 
-        std::span<const uint8_t> encode(std::span<const float> audio, unsigned int num_quantizers);
+        std::span<const float> encode(std::span<const float> audio, unsigned int num_quantizers);
     };
 
 //----------------------------------------------------------------------------------------------------------------
@@ -43,7 +43,7 @@ namespace encodec
         decoder(decoder&& other);
         decoder& operator=(decoder&& other);
 
-        std::span<const float> decode(std::span<const uint8_t> packet, unsigned int num_quantizers);
+        std::span<const float> decode(std::span<const float> data, unsigned int num_quantizers);
     };
 
 //----------------------------------------------------------------------------------------------------------------
