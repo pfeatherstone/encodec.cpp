@@ -16,6 +16,7 @@
 
 using MatrixXf = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>;
 using VectorXf = Eigen::Vector<float, -1>;
+using ArrayXf  = Eigen::Array<float, -1, 1>;
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -234,43 +235,46 @@ namespace encodec
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-    constexpr void elu_(std::span<const float> in, std::span<float> out, const float alpha=1.0)
+    template <class Derived>
+    auto elu(const Eigen::ArrayBase<Derived>& x, float alpha = 1.0)
     {
-        for (size_t i{0} ; i < in.size() ; ++i)
-            out[i] = in[i] > 0 ? in[i] : alpha*(std::exp(in[i])-1);
+        return (x > 0.0f).select(x, alpha * (x.exp() - 1.0f));
     }
-
-    struct elu
-    {
-        bool                inplace{};
-        float               alpha{};
-        std::vector<float>  tmp;
-
-        elu(bool inplace_, float alpha_ = 1.0) : inplace{inplace_}, alpha{alpha_} {}
-
-        std::span<float> operator()(std::span<float> input)
-        {
-            if (inplace)
-            {
-                elu_(input, input, alpha);
-                return input;
-            }
-            else
-            {
-                tmp.resize(input.size());
-                elu_(input, tmp, alpha);
-                return tmp;
-            }
-        }
-    };
-
-//----------------------------------------------------------------------------------------------------------------
 
     template <class Derived>
     auto sigmoid(const Eigen::ArrayBase<Derived>& x)
     {
         return (1.0f + (-x).exp()).inverse();
     }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    struct elu_layer
+    {
+        bool                inplace{};
+        float               alpha{};
+        std::vector<float>  tmp;
+
+        elu_layer(bool inplace_, float alpha_ = 1.0) : inplace{inplace_}, alpha{alpha_} {}
+
+        std::span<float> operator()(std::span<float> input)
+        {
+            if (inplace)
+            {
+                auto x = Eigen::Map<ArrayXf>(input.data(), input.size());
+                x = elu(x, alpha);
+                return input;
+            }
+            else
+            {
+                tmp.resize(input.size());
+                auto x = Eigen::Map<const ArrayXf>(input.data(), input.size());
+                auto y = Eigen::Map<ArrayXf>(tmp.data(), tmp.size());
+                y = elu(x, alpha);
+                return tmp;
+            }
+        }
+    };
 
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
@@ -324,8 +328,8 @@ namespace encodec
         size_t              s{};
         size_t              d{1};
         size_t              pad() {return d * (k - 1) + 1 - s;}
-        std::vector<float>  weights{};      // shape [nout,k,nin]]
-        std::vector<float>  bias{};         // shape [nout]
+        MatrixXf            w;              // shape [nout,k*nin]
+        VectorXf            b;              // shape [nout]
         std::vector<float>  scratch_in;     // shape [pad+nin]
         std::vector<float>  scratch_out;    // shape [T//s, nout]
 
@@ -334,18 +338,19 @@ namespace encodec
           nout{nout_}, 
           k{k_}, 
           s{s_}, 
-          weights(nout*nin*k),
-          bias(nout)
+          w(nout, k*nin),
+          b(nout)
         {}
 
         auto load_weights(std::span<const float> data) -> std::span<const float>
         {
-            if (data.size() < (weights.size() + bias.size())) throw std::runtime_error("Not enough data in weights");
-            const auto w = data.subspan(0,              weights.size());
-            const auto b = data.subspan(weights.size(), bias.size());
-            std::copy(begin(w), end(w), begin(weights));
-            std::copy(begin(b), end(b), begin(bias));
-            return data.subspan(weights.size()+bias.size());
+            if (data.size() < size_t(w.size() + b.size())) throw std::runtime_error("Not enough data in weights");
+            size_t off{0};
+            auto w_ = Eigen::Map<const MatrixXf>(data.subspan(off, w.size()).data(), nout, k*nin); off += w.size();
+            auto b_ = Eigen::Map<const VectorXf>(data.subspan(off, b.size()).data(), nout);        off += b.size();
+            w       = w_;
+            b       = b_;
+            return data.subspan(off);
         }
 
         std::span<float> operator()(std::span<const float> input)
@@ -373,9 +378,12 @@ namespace encodec
             size_t i{0};
             size_t j{0};
 
-            for (; (i+k) <= Tinp ; i+=s, ++j)
-                for (size_t c{0} ; c < nout ; ++c)
-                    scratch_out[j*nout+c] = dot(&scratch_in[i*nin], &weights[c*k*nin], k*nin) + bias[c];            
+            for (; (i+k) <= Tinp; i+=s, ++j)
+            {
+                auto x = Eigen::Map<const VectorXf>(&scratch_in[i*nin], k*nin); 
+                auto y = Eigen::Map<VectorXf>(&scratch_out[j*nout],nout);
+                y.noalias() = w*x + b;
+            }
 
             assert((j*nout)<=scratch_out.size());
             return scratch_out;
@@ -561,11 +569,11 @@ namespace encodec
 
     struct resnet_block
     {
-        elu     a0;
-        elu     a1;
-        conv    b0;
-        linear  b1;
-        linear  b2;
+        elu_layer   a0;
+        elu_layer   a1;
+        conv        b0;
+        linear      b1;
+        linear      b2;
 
         resnet_block(size_t c)
         : a0(false),
@@ -597,7 +605,7 @@ namespace encodec
     struct encoder_block
     {
         resnet_block b0;
-        elu          a1;
+        elu_layer    a1;
         conv         b1;
 
         encoder_block(size_t c1, size_t c2, size_t s)
@@ -664,7 +672,7 @@ namespace encodec
         encoder_block b3;
         encoder_block b4;
         encodec_lstm  b5;
-        elu           a6;
+        elu_layer     a6;
         conv          b6;
         std::vector<uint16_t> codes;
         std::vector<uint8_t>  buf;
