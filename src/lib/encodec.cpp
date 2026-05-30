@@ -478,12 +478,18 @@ namespace encodec
         MatrixXf whh;
         VectorXf bias;
         VectorXf gates;
+        VectorXf h;
+        VectorXf c;
+        MatrixXf xw;      // [T, 4H]
+        MatrixXf out;     // [T, H]
 
         lstm_cell(size_t input_size, size_t hidden_size)
         : wih(4*hidden_size, input_size),
           whh(4*hidden_size, hidden_size),
           bias(4*hidden_size),
-          gates(4*hidden_size)
+          gates(4*hidden_size),
+          h(hidden_size),
+          c(hidden_size)
         {
         }
 
@@ -502,16 +508,41 @@ namespace encodec
             return data.subspan(off);
         }
 
-        void operator()(const VectorXf& x_t, VectorXf& h, VectorXf& c)
+        void apply_gates()
         {
             const size_t H = h.size();
-            gates.noalias() = wih*x_t + whh*h + bias;
             auto i = gates.segment(0 * H, H).array();
             auto f = gates.segment(1 * H, H).array();
             auto g = gates.segment(2 * H, H).array();
             auto o = gates.segment(3 * H, H).array();
             c.array() = sigmoid(f) * c.array()  + sigmoid(i) * g.tanh();
             h.array() = sigmoid(o) * c.array().tanh();
+        }
+
+        auto& operator()(const MatrixXf& X)
+        {
+            const size_t T = X.rows();
+            const size_t H = whh.cols();
+            out.resize(T, H);
+
+            // Zero hidden state and cell state
+            h.setZero();
+            c.setZero();
+
+            // Precompute input projection for all timesteps
+            xw.resize(T, 4*H);
+            xw.noalias() = X * wih.transpose();
+            xw.rowwise() += bias.transpose();
+
+            for (size_t t{0}; t < T; ++t)
+            {
+                // gates = xw[t] + whh * h
+                gates.noalias() = xw.row(t).transpose() + whh * h;
+                apply_gates();
+                out.row(t) = h.transpose();
+            }
+
+            return out;
         }   
     };
 
@@ -519,24 +550,12 @@ namespace encodec
 
     struct encodec_lstm
     {
-        size_t              nin{};
-        lstm_cell           cells[2];
-        VectorXf            h[2];
-        VectorXf            c[2];
-        VectorXf            y;
+        lstm_cell   cells[2];
+        MatrixXf    out;
 
         encodec_lstm(size_t dim)
-        : nin{dim},
-          cells{lstm_cell(dim,dim), lstm_cell(dim,dim)},
-          h{VectorXf(dim), VectorXf(dim)},
-          c{VectorXf(dim), VectorXf(dim)}
+        : cells{lstm_cell(dim, dim), lstm_cell(dim, dim)}
         {
-        }
-
-        void reset_state()
-        {
-            for (auto& v : h) v.setZero();
-            for (auto& v : c) v.setZero();
         }
 
         auto load_weights(std::span<const float> data) -> std::span<const float>
@@ -548,20 +567,14 @@ namespace encodec
 
         std::span<float> operator()(std::span<const float> input)
         {
-            const size_t T = input.size() / nin;
-            reset_state();
-            y.resize(input.size());
-
-            for (size_t t{0}; t < T; ++t)
-            {
-                auto x_t = Eigen::Map<const VectorXf>(input.subspan(t*nin, nin).data(), nin);
-                cells[0](x_t,  h[0], c[0]);
-                cells[1](h[0], h[1], c[1]);
-                auto y_t = y.segment(t*nin, nin);
-                y_t = x_t + h[1];
-            }
-
-            return std::span<float>{y.data(), static_cast<size_t>(y.size())};
+            const size_t C = cells[0].wih.cols();
+            const size_t T = input.size() / C;
+            out.resize(T, C);
+            auto X = Eigen::Map<const MatrixXf>(input.data(), T, C);
+            auto& Y = cells[0](X);
+            auto& Z = cells[1](Y);
+            out.noalias() = X + Z;
+            return std::span{out.data(), (size_t)out.size()};
         }
     };
 
@@ -653,16 +666,6 @@ namespace encodec
     };
 
 //----------------------------------------------------------------------------------------------------------------
-
-// def EncodecEncoder():
-//     return nn.Sequential(CausalConv1d(1, 32, 7),
-//                          EncodecEncoderBlock( 32,  64, s=2),
-//                          EncodecEncoderBlock( 64, 128, s=4),
-//                          EncodecEncoderBlock(128, 256, s=5),
-//                          EncodecEncoderBlock(256, 512, s=8),
-//                          EncodecLSTM(512, 2),
-//                          nn.ELU(), CausalConv1d(512, 128, 7),
-//                          Rearrange('b f n -> b n f'))
 
     struct encoder::impl
     {
