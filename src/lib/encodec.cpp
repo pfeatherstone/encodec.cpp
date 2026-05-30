@@ -54,68 +54,12 @@ namespace encodec
     
 //----------------------------------------------------------------------------------------------------------------
 
-#if defined(__AVX2__)
     inline float dot(const float* a, const float* b, const size_t len)
     {
-        const size_t len0 = (len/32)*32;
-        const size_t len1 = (len/8)*8;
-
-        __m256 dotProdVal0 = _mm256_setzero_ps();
-        __m256 dotProdVal1 = _mm256_setzero_ps();
-        __m256 dotProdVal2 = _mm256_setzero_ps();
-        __m256 dotProdVal3 = _mm256_setzero_ps();
-
-        size_t i{0};
-        for (; i < len0; i += 32) 
-        {
-            const __m256 a0Val = _mm256_loadu_ps(&a[i+0]);
-            const __m256 a1Val = _mm256_loadu_ps(&a[i+8]);
-            const __m256 a2Val = _mm256_loadu_ps(&a[i+16]);
-            const __m256 a3Val = _mm256_loadu_ps(&a[i+24]);
-            const __m256 b0Val = _mm256_loadu_ps(&b[i+0]);
-            const __m256 b1Val = _mm256_loadu_ps(&b[i+8]);
-            const __m256 b2Val = _mm256_loadu_ps(&b[i+16]);
-            const __m256 b3Val = _mm256_loadu_ps(&b[i+24]);
-
-            dotProdVal0 = _mm256_fmadd_ps(a0Val, b0Val, dotProdVal0);
-            dotProdVal1 = _mm256_fmadd_ps(a1Val, b1Val, dotProdVal1);
-            dotProdVal2 = _mm256_fmadd_ps(a2Val, b2Val, dotProdVal2);
-            dotProdVal3 = _mm256_fmadd_ps(a3Val, b3Val, dotProdVal3);
-        }
-
-        for (; i < len1; i += 8) 
-        {
-            const __m256 a0Val = _mm256_loadu_ps(&a[i]);
-            const __m256 b0Val = _mm256_loadu_ps(&b[i]);
-            dotProdVal0 = _mm256_fmadd_ps(a0Val, b0Val, dotProdVal0);
-        }
-
-        dotProdVal0 = _mm256_add_ps(_mm256_add_ps(dotProdVal0, dotProdVal1),
-                                    _mm256_add_ps(dotProdVal2, dotProdVal3));
-        
-        alignas(32) float dotProductVector[8];
-        _mm256_store_ps(dotProductVector, dotProdVal0); // Store the results back into the dot product vector
-
-        float ret = dotProductVector[0]
-                    + dotProductVector[1]
-                    + dotProductVector[2]
-                    + dotProductVector[3]
-                    + dotProductVector[4]
-                    + dotProductVector[5]
-                    + dotProductVector[6]
-                    + dotProductVector[7];
-
-        for (; i < len; ++i)
-            ret += a[i]*b[i];
-
-        return ret;
+        Eigen::Map<const VectorXf> ae(a, len);
+        Eigen::Map<const VectorXf> be(b, len);
+        return ae.dot(be);
     }
-#else
-    constexpr float dot(const float* a, const float* b, const size_t len)
-    {
-        return std::inner_product(a, a+len, b, 0.0f);
-    }
-#endif
 
 //----------------------------------------------------------------------------------------------------------------
 
