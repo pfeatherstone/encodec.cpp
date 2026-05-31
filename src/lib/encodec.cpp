@@ -47,19 +47,8 @@ namespace encodec
 
     constexpr void add(std::span<const float> a, std::span<const float> b, std::span<float> c)
     {
-        assert(a.size()==b.size() && a.size()==c.size());
-
         for (size_t i{0} ; i < a.size() ; ++i)
             c[i] = a[i] + b[i];
-    }
-    
-//----------------------------------------------------------------------------------------------------------------
-
-    inline float dot(const float* a, const float* b, const size_t len)
-    {
-        Eigen::Map<const VectorXf> ae(a, len);
-        Eigen::Map<const VectorXf> be(b, len);
-        return ae.dot(be);
     }
 
 //----------------------------------------------------------------------------------------------------------------
