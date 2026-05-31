@@ -330,7 +330,7 @@ namespace encodec
         size_t              pad() {return d * (k - 1) + 1 - s;}
         MatrixXf            w;              // shape [nout,k*nin]
         VectorXf            b;              // shape [nout]
-        std::vector<float>  scratch_in;     // shape [pad+nin]
+        std::vector<float>  scratch_in;     // shape [(p+k),nin]
         std::vector<float>  scratch_out;    // shape [T//s, nout]
 
         conv(size_t nin_, size_t nout_, size_t k_, size_t s_=1)
@@ -361,26 +361,28 @@ namespace encodec
             const size_t Tin  = input.size() / nin;
             const size_t Tinp = Tin+p;
             const size_t Tout = (Tinp - k) / s + 1;
-            scratch_in.resize(Tinp*nin);
+            scratch_in.resize((p+k)*nin);
             scratch_out.resize(Tout*nout);
 
-            // Pad
+            // Padded buf
             for (size_t i{0} ; i < p ; ++i)
-            {
-                const auto i0 = (p-i)*nin;
-                const auto i1 = i0+nin;
-                auto       o0 = i*nin;
-                std::copy(begin(input)+i0, begin(input)+i1, begin(scratch_in)+o0);
-            }
-            std::copy(begin(input), end(input), begin(scratch_in)+p*nin);
+                std::copy_n(begin(input)+(p-i)*nin, nin, begin(scratch_in)+i*nin);
+            std::copy_n(begin(input), k*nin, begin(scratch_in)+p*nin);
 
-            // Conv
             size_t i{0};
             size_t j{0};
 
-            for (; (i+k) <= Tinp; i+=s, ++j)
+            // Conv in padded windows
+            for (; i < p; i+=s, ++j)
             {
                 auto x = Eigen::Map<const VectorXf>(&scratch_in[i*nin], k*nin); 
+                auto y = Eigen::Map<VectorXf>(&scratch_out[j*nout],nout);
+                y.noalias() = w*x + b;
+            }
+            // Conv in rest
+            for (; (i+k) <= Tinp; i+=s, ++j)
+            {
+                auto x = Eigen::Map<const VectorXf>(&input[(i-p)*nin], k*nin); 
                 auto y = Eigen::Map<VectorXf>(&scratch_out[j*nout],nout);
                 y.noalias() = w*x + b;
             }
