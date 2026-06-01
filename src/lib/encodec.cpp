@@ -14,12 +14,10 @@
 
 //----------------------------------------------------------------------------------------------------------------
 
-using MatrixXf = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>;
-using VectorXf = Eigen::Vector<float, -1>;
-using ArrayXf  = Eigen::Array<float, -1, 1>;
-using ConstMapMatrixXf = Eigen::Map<const MatrixXf>;
-using ConstMapVectorXf = Eigen::Map<const VectorXf>;
-using MapVectorXf      = Eigen::Map<VectorXf>;
+using MatrixXf      = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>;
+using MatrixXu16    = Eigen::Matrix<uint16_t, -1, -1, Eigen::RowMajor>;
+using VectorXf      = Eigen::Vector<float, -1>;
+using ArrayXf       = Eigen::Array<float, -1, 1>;
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -146,6 +144,7 @@ namespace encodec
         MatrixXf dists;
         std::vector<uint16_t> codes;
         std::vector<uint8_t>  codes_packed;
+        std::vector<float>    feats;
 
         rvq()
         {
@@ -155,6 +154,7 @@ namespace encodec
 
         std::span<const uint8_t> encode(std::span<float> feats, size_t nlevels)
         {
+            // RVQ Encode
             const size_t T = feats.size() / CODEBOOK_DIM;
             codes.resize(T*nlevels);
             codes_packed.resize((codes.size()*10 + 7) / 8);
@@ -176,26 +176,35 @@ namespace encodec
                 }
             }   
 
+            // Pack
             pack_codes(codes, codes_packed);
             return codes_packed;
         }
+
+        std::span<float> decode(std::span<const uint8_t> codes_packed, size_t nlevels)
+        {
+            // Unpack bits
+            const size_t ncodes = (codes_packed.size()*8)/10;
+            const size_t T      = ncodes/nlevels;
+            codes.resize(ncodes);
+            feats.resize(T*CODEBOOK_DIM);
+            unpack_bits(codes_packed, codes);
+
+            auto X = Eigen::Map<const MatrixXu16>(&codes[0], T, nlevels);
+            auto Y = Eigen::Map<MatrixXf>(&feats[0], T, CODEBOOK_DIM);
+            Y.setZero();
+
+            // RVQ decode
+            for (size_t l{0}; l < nlevels; ++l)
+            {
+                auto C = codebook(l);
+                for (size_t t{0}; t < T; ++t)
+                    Y.row(t) += C.row(X(t,l));
+            }
+
+            return feats;
+        }
     };
-
-    // constexpr void rvq_decode(std::span<const uint16_t> codes, std::span<float> feats, unsigned int nlevels)
-    // {
-    //     const size_t nfeats = feats.size() / CODEBOOK_DIM;
-
-    //     for (size_t i{0} ; i < nfeats ; ++i)
-    //     {
-    //         auto x = feats.subspan(i*CODEBOOK_DIM, CODEBOOK_DIM);
-
-    //         for (size_t l{0} ; l < nlevels ; ++l)
-    //         {
-    //             const auto codebook = get_rvq_row(l, codes[i*nlevels+l]);
-    //             add(x, codebook, x);
-    //         }
-    //     }
-    // }
 
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
@@ -614,11 +623,13 @@ namespace encodec
 
     struct decoder_block
     {
+        elu_layer       a0;
         conv_transpose  b0;
         resnet_block    b1;
 
         decoder_block(size_t c1, size_t c2, size_t s)
-        : b0(c1, c2, s*2, s),
+        : a0(true),
+          b0(c1, c2, s*2, s),
           b1(c2)
         {}
 
@@ -629,9 +640,9 @@ namespace encodec
             return data;
         }
 
-        std::span<float> operator()(std::span<const float> input)
+        std::span<float> operator()(std::span<float> input)
         {
-            return b1(b0(input));
+            return b1(b0(a0(input)));
         }
     };
 
@@ -674,7 +685,6 @@ namespace encodec
         {
             assert(num_quantizers >= 1 && num_quantizers <= NLEVELS);
 
-            // Run encoder
             auto x = b0(audio);
             x      = b1(x);
             x      = b2(x);
@@ -682,8 +692,6 @@ namespace encodec
             x      = b4(x);
             x      = b5(x);
             x      = b6(a6(x));
-
-            // Run RVQ
             return rvq_.encode(x, num_quantizers);
         }
     };
@@ -692,46 +700,49 @@ namespace encodec
 
     struct decoder::impl
     {
-        conv                    b0;
-        encodec_lstm            b1;
-        decoder_block           b2;
-        // std::vector<uint16_t>   codes;
-        // std::vector<float>      feats;
+        conv          b0;
+        encodec_lstm  b1;
+        decoder_block b2;
+        decoder_block b3;
+        decoder_block b4;
+        decoder_block b5;
+        elu_layer     a6;
+        conv          b6;
+        rvq           rvq_;
 
         impl()
         : b0(128, 512, 7),
           b1(512),
-          b2(512, 256, 8)
+          b2(512, 256, 8),
+          b3(256, 128, 5),
+          b4(128,  64, 4),
+          b5( 64,  32, 2),
+          a6(true),
+          b6( 32,   1, 7)
         {
             auto weights = decoder_weights;
             weights = b0.load_weights(weights);
             weights = b1.load_weights(weights);
             weights = b2.load_weights(weights);
-            // assert(weights.size()==0);
-            printf("Leftover weights %zu\n", weights.size());
+            weights = b3.load_weights(weights);
+            weights = b4.load_weights(weights);
+            weights = b5.load_weights(weights);
+            weights = b6.load_weights(weights);
+            assert(weights.size()==0);
         }
 
-        std::span<const float> decode(std::span<const float> feats, unsigned int num_quantizers)
+        std::span<const float> decode(std::span<const uint8_t> packet, unsigned int num_quantizers)
         {
             assert(num_quantizers >= 1 && num_quantizers <= NLEVELS);
 
-            // // Unpack bits
-            // const size_t ncodes = (packet.size()*8)/10;
-            // const size_t nfeats = ncodes/num_quantizers;
-            // assert(ncodes % num_quantizers == 0);
-            // codes.resize(ncodes);
-            // unpack_bits(packet, codes);
-
-            // // RVQ
-            // feats.resize(nfeats*CODEBOOK_DIM);
-            // memset(&feats[0], 0, feats.size()*sizeof(float));
-            // rvq_decode(codes, feats, num_quantizers);
-
-            // Run decoder
-            auto x = b0(feats);
-            x      = b1(x);
-            x      = b2(x);
-
+            auto x  = rvq_.decode(packet, num_quantizers);
+            x       = b0(x);
+            x       = b1(x);
+            x       = b2(x);
+            x       = b3(x);
+            x       = b4(x);
+            x       = b5(x);
+            x       = b6(a6(x));
             return x;
         }
     };
@@ -755,9 +766,9 @@ namespace encodec
     decoder::decoder(decoder&& other)            = default;
     decoder& decoder::operator=(decoder&& other) = default;
 
-    std::span<const float> decoder::decode(std::span<const float> feats, unsigned int num_quantizers)
+    std::span<const float> decoder::decode(std::span<const uint8_t> packet, unsigned int num_quantizers)
     {
-        return state->decode(feats, num_quantizers);
+        return state->decode(packet, num_quantizers);
     }
 
 //----------------------------------------------------------------------------------------------------------------

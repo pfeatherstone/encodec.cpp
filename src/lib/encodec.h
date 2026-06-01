@@ -43,7 +43,7 @@ namespace encodec
         decoder(decoder&& other);
         decoder& operator=(decoder&& other);
 
-        std::span<const float> decode(std::span<const float> data, unsigned int num_quantizers);
+        std::span<const float> decode(std::span<const uint8_t> packet, unsigned int num_quantizers);
     };
 
 //----------------------------------------------------------------------------------------------------------------
