@@ -373,79 +373,63 @@ namespace encodec
 
     struct conv_transpose
     {
-        size_t              nin{};
-        size_t              nout{};
-        size_t              k{};
-        size_t              s{};
-        size_t              d{1};
-        size_t              pad() {return d * (k - 1) + 1 - s;}
-        std::vector<float>  weights{};      // shape [nin,k,nout]
-        std::vector<float>  bias{};         // shape [nout]
-        std::vector<float>  scratch_in;     // shape [Tin,nin]
-        std::vector<float>  scratch_out;    // shape [Tout_padded,nout]
+        size_t   nin{};
+        size_t   nout{};
+        size_t   k{};
+        size_t   s{};
+        size_t   d{1};
+        size_t   pad() {return d * (k - 1) + 1 - s;}
+        MatrixXf w;         // [nin, k*nout], raw layout [nin,k,nout]
+        VectorXf b;         // [nout]
+        MatrixXf patches;   // [Tin, k*nout]
+        MatrixXf out;       // [Tout_padded, nout]
 
         conv_transpose(size_t nin_, size_t nout_, size_t k_, size_t s_ = 1)
         : nin{nin_}, 
           nout{nout_}, 
           k{k_}, 
           s{s_}, 
-          weights(nout*nin*k),
-          bias(nout)
+          w(nin,k*nout),
+          b(nout)
         {}
 
         auto load_weights(std::span<const float> data) -> std::span<const float>
         {
-            if (data.size() < (weights.size() + bias.size())) throw std::runtime_error("Not enough data in weights");
-            const auto w = data.subspan(0,              weights.size());
-            const auto b = data.subspan(weights.size(), bias.size());
-            std::copy(begin(w), end(w), begin(weights));
-            std::copy(begin(b), end(b), begin(bias));
-            return data.subspan(weights.size()+bias.size());
+            if (data.size() < size_t(w.size() + b.size())) throw std::runtime_error("Not enough data in weights");
+            size_t off{0};
+            auto w_ = Eigen::Map<const MatrixXf>(data.subspan(off, w.size()).data(), nin, k*nout); off += w.size();
+            auto b_ = Eigen::Map<const VectorXf>(data.subspan(off, b.size()).data(), nout);        off += b.size();
+            w       = w_;
+            b       = b_;
+            return data.subspan(off);
         }
 
         std::span<float> operator()(std::span<const float> input)
         {
-            // input  shape [Tin,nin]
-            // output shape [Tin*s,nout] for your EnCodec-style padding
-
-            const size_t p           = pad();
             const size_t Tin         = input.size() / nin;
+            const size_t p           = pad();
             const size_t Tout_padded = (Tin - 1) * s + d * (k - 1) + 1;
             const size_t Tout        = Tout_padded - p;
+            out.setZero(Tout_padded, nout);
 
-            // Pre-act
-            scratch_in.assign(begin(input), end(input));
-            
-            // Scatter transposed convolution.
-            // out_padded[t*s + kk*d, co] += x[t,ci] * weight[ci,kk,co]
-            scratch_out.assign(Tout_padded * nout, 0.0f);
+            // GEMM
+            auto X = Eigen::Map<const MatrixXf>(input.data(), Tin, nin);
+            patches.noalias() = X * w; // [Tin, k*nout]
 
+            // col2im / overlap-add
             for (size_t t{0}; t < Tin; ++t)
             {
-                for (size_t ci{0}; ci < nin; ++ci)
+                for (size_t kk{0}; kk < k; ++kk)
                 {
-                    const float x = scratch_in[t * nin + ci];
-
-                    for (size_t kk{0}; kk < k; ++kk)
-                    {
-                        const size_t to = t * s + kk * d;
-
-                        const float* w = &weights[(ci * k + kk) * nout];
-                        float*       y = &scratch_out[to * nout];
-
-                        for (size_t co{0}; co < nout; ++co)
-                            y[co] += x * w[co];
-                    }
+                    const size_t to = t*s + kk*d;
+                    out.row(to) += patches.block(t, kk * nout, 1, nout);
                 }
             }
 
             // Add bias
-            for (size_t t{0}; t < Tout; ++t)
-                for (size_t co{0}; co < nout; ++co)
-                    scratch_out[t * nout + co] += bias[co];
+            out.rowwise() += b.transpose();
 
-            auto out = std::span{scratch_out}.subspan(0, Tout*nout);
-            return out;
+            return std::span<float>{out.data(), Tout*nout};
         }
     };
 
