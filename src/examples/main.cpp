@@ -81,7 +81,11 @@ int main()
 
     float audio[24000];
     memset(audio, 0, sizeof(audio));
+    
+    // Warmup
     auto packet = enc.encode(audio, 32);
+    for (size_t i{0} ; i < 10 ; ++i)
+        packet = enc.encode(audio, 32);
 
     const int ntests = 50;
     const auto s0 = high_resolution_clock::now();
