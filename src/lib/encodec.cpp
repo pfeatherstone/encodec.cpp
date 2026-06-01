@@ -131,11 +131,13 @@ namespace encodec
     unsigned int get_encodec_bps(unsigned int nlevels)      { return (SAMPLE_RATE / STRIDE) * nlevels * 10; }
     unsigned int get_encoded_nquantizers(unsigned int bps)  { return (bps / 10) * STRIDE / SAMPLE_RATE; }
 
+//----------------------------------------------------------------------------------------------------------------
+
     auto codebook(size_t l)
     {
         return Eigen::Map<const MatrixXf>(&rvq_weights[l*CODEBOOK_SIZE*CODEBOOK_DIM], CODEBOOK_SIZE, CODEBOOK_DIM);
     }
-
+    
 //----------------------------------------------------------------------------------------------------------------
 
     struct rvq
