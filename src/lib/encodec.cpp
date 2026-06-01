@@ -17,6 +17,9 @@
 using MatrixXf = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>;
 using VectorXf = Eigen::Vector<float, -1>;
 using ArrayXf  = Eigen::Array<float, -1, 1>;
+using ConstMapMatrixXf = Eigen::Map<const MatrixXf>;
+using ConstMapVectorXf = Eigen::Map<const VectorXf>;
+using MapVectorXf      = Eigen::Map<VectorXf>;
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -35,36 +38,11 @@ namespace encodec
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 
-    constexpr void subtract(std::span<const float> a, std::span<const float> b, std::span<float> c)
-    {
-        assert(a.size()==b.size() && a.size()==c.size());
-
-        for (size_t i{0} ; i < a.size() ; ++i)
-            c[i] = a[i] - b[i];
-    }
-
-//----------------------------------------------------------------------------------------------------------------
-
     constexpr void add(std::span<const float> a, std::span<const float> b, std::span<float> c)
     {
         for (size_t i{0} ; i < a.size() ; ++i)
             c[i] = a[i] + b[i];
     }
-
-//----------------------------------------------------------------------------------------------------------------
-
-    constexpr float squared_dist(std::span<const float> a, std::span<const float> b)
-    {
-        assert(a.size()==b.size());
-
-        float val{0};
-        for (size_t i = 0 ; i < a.size() ; ++i)
-        {
-            const float tmp = a[i]-b[i];
-            val += tmp*tmp;
-        }
-        return val;
-    } 
 
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
@@ -88,76 +66,6 @@ namespace encodec
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
     
-    unsigned int get_encodec_bps(unsigned int nlevels)      { return (SAMPLE_RATE / STRIDE) * nlevels * 10; }
-    unsigned int get_encoded_nquantizers(unsigned int bps)  { return (bps / 10) * STRIDE / SAMPLE_RATE; }
-
-//----------------------------------------------------------------------------------------------------------------
-
-    auto get_rvq_row(size_t level, size_t codebook_idx)
-    {
-        assert(NLEVELS*CODEBOOK_SIZE*CODEBOOK_DIM == rvq_weights.size());
-        assert(level        < NLEVELS);
-        assert(codebook_idx < CODEBOOK_SIZE);
-        const size_t index = (level*CODEBOOK_SIZE + codebook_idx)*CODEBOOK_DIM;
-        return rvq_weights.subspan(index, CODEBOOK_DIM);
-    }
-
-//----------------------------------------------------------------------------------------------------------------
-
-    constexpr void rvq_encode(std::span<float> feats, std::span<uint16_t> codes, unsigned int nlevels)
-    {
-        const size_t nfeats = feats.size() / CODEBOOK_DIM;
-
-        for (size_t i{0} ; i < nfeats ; ++i)
-        {
-            auto x = feats.subspan(i*CODEBOOK_DIM, CODEBOOK_DIM);
-
-            for (size_t l{0} ; l < nlevels ; ++l)
-            {
-                // Find best codebook
-                float                  min_dist{std::numeric_limits<float>::max()};
-                size_t                 codebook_idx{0};
-                std::span<const float> codebook_best{};
-
-                for (size_t c{0} ; c < CODEBOOK_SIZE ; ++c)
-                {
-                    const auto codebook = get_rvq_row(l, c);
-                    const auto dist     = squared_dist(x, codebook);
-
-                    if (dist < min_dist)
-                    {
-                        min_dist        = dist;
-                        codebook_idx    = c;
-                        codebook_best   = codebook;
-                    }
-                }
-
-                codes[i*nlevels + l] = codebook_idx;
-
-                // Update residual
-                subtract(x, codebook_best, x);
-            }
-        }
-    }
-
-    constexpr void rvq_decode(std::span<const uint16_t> codes, std::span<float> feats, unsigned int nlevels)
-    {
-        const size_t nfeats = feats.size() / CODEBOOK_DIM;
-
-        for (size_t i{0} ; i < nfeats ; ++i)
-        {
-            auto x = feats.subspan(i*CODEBOOK_DIM, CODEBOOK_DIM);
-
-            for (size_t l{0} ; l < nlevels ; ++l)
-            {
-                const auto codebook = get_rvq_row(l, codes[i*nlevels+l]);
-                add(x, codebook, x);
-            }
-        }
-    }
-
-//----------------------------------------------------------------------------------------------------------------
-
     constexpr void pack_codes(std::span<const uint16_t> codes, std::span<uint8_t> bytes)
     {
         const size_t nblocks = codes.size()/4; // 40 bits blocks
@@ -217,6 +125,75 @@ namespace encodec
                 codes[nblocks*4+k] = (word >> (10 * k)) & 0x3ffull;
         }
     }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    unsigned int get_encodec_bps(unsigned int nlevels)      { return (SAMPLE_RATE / STRIDE) * nlevels * 10; }
+    unsigned int get_encoded_nquantizers(unsigned int bps)  { return (bps / 10) * STRIDE / SAMPLE_RATE; }
+
+    auto codebook(size_t l)
+    {
+        return Eigen::Map<const MatrixXf>(&rvq_weights[l*CODEBOOK_SIZE*CODEBOOK_DIM], CODEBOOK_SIZE, CODEBOOK_DIM);
+    }
+
+//----------------------------------------------------------------------------------------------------------------
+
+    struct rvq
+    {
+        VectorXf Cnorms[NLEVELS];
+        MatrixXf dists;
+        std::vector<uint16_t> codes;
+        std::vector<uint8_t>  codes_packed;
+
+        rvq()
+        {
+            for (size_t l{0} ; l < NLEVELS ; ++l)
+                Cnorms[l] = codebook(l).rowwise().squaredNorm();
+        }
+
+        std::span<const uint8_t> encode(std::span<float> feats, size_t nlevels)
+        {
+            const size_t T = feats.size() / CODEBOOK_DIM;
+            codes.resize(T*nlevels);
+            codes_packed.resize((codes.size()*10 + 7) / 8);
+
+            auto X = Eigen::Map<MatrixXf>(&feats[0], T, CODEBOOK_DIM);
+
+            for (size_t l{0} ; l < nlevels ; ++l)
+            {
+                auto C = codebook(l);
+                dists.noalias() = -2.0f * X * C.transpose();
+                dists.rowwise() += Cnorms[l].transpose();
+                
+                for (size_t t{0}; t < T; ++t)
+                {
+                    Eigen::Index best_idx{0};
+                    dists.row(t).minCoeff(&best_idx);
+                    X.row(t) -= C.row(best_idx);
+                    codes[t*nlevels+l] = best_idx;                    
+                }
+            }   
+
+            pack_codes(codes, codes_packed);
+            return codes_packed;
+        }
+    };
+
+    // constexpr void rvq_decode(std::span<const uint16_t> codes, std::span<float> feats, unsigned int nlevels)
+    // {
+    //     const size_t nfeats = feats.size() / CODEBOOK_DIM;
+
+    //     for (size_t i{0} ; i < nfeats ; ++i)
+    //     {
+    //         auto x = feats.subspan(i*CODEBOOK_DIM, CODEBOOK_DIM);
+
+    //         for (size_t l{0} ; l < nlevels ; ++l)
+    //         {
+    //             const auto codebook = get_rvq_row(l, codes[i*nlevels+l]);
+    //             add(x, codebook, x);
+    //         }
+    //     }
+    // }
 
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
@@ -668,8 +645,7 @@ namespace encodec
         encodec_lstm  b5;
         elu_layer     a6;
         conv          b6;
-        std::vector<uint16_t> codes;
-        std::vector<uint8_t>  buf;
+        rvq           rvq_;
 
         impl()
         : b0(  1,  32, 7),
@@ -692,7 +668,7 @@ namespace encodec
             assert(weights.size()==0);
         }
 
-        std::span<const float> encode(std::span<const float> audio, unsigned int num_quantizers)
+        std::span<const uint8_t> encode(std::span<const float> audio, unsigned int num_quantizers)
         {
             assert(num_quantizers >= 1 && num_quantizers <= NLEVELS);
 
@@ -704,16 +680,9 @@ namespace encodec
             x      = b4(x);
             x      = b5(x);
             x      = b6(a6(x));
-            return x;
-            // // Run RVQ
-            // const size_t nfeats = x.size() / CODEBOOK_DIM;
-            // codes.resize(nfeats*num_quantizers);
-            // rvq_encode(x, codes, num_quantizers);
 
-            // // Pack codes
-            // buf.resize((codes.size()*10 + 7) / 8);
-            // pack_codes(codes, buf);
-            // return buf;
+            // Run RVQ
+            return rvq_.encode(x, num_quantizers);
         }
     };
 
@@ -772,7 +741,7 @@ namespace encodec
     encoder::encoder(encoder&& other)            = default;
     encoder& encoder::operator=(encoder&& other) = default;
 
-    std::span<const float> encoder::encode(std::span<const float> audio, unsigned int num_quantizers)
+    std::span<const uint8_t> encoder::encode(std::span<const float> audio, unsigned int num_quantizers)
     {
         return state->encode(audio, num_quantizers);
     }
