@@ -50,7 +50,7 @@ jobs:
 
       - name: Run CMake configuration and build
         run: |
-          cmake examples -B build -G Ninja \
+          cmake . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_C_COMPILER=${{ matrix.c_compiler }} \
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx_compiler }}
