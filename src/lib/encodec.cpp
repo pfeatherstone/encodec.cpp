@@ -299,16 +299,15 @@ namespace encodec
 
     struct conv
     {
-        size_t              nin{};
-        size_t              nout{};
-        size_t              k{};
-        size_t              s{};
-        size_t              d{1};
-        size_t              pad() {return d * (k - 1) + 1 - s;}
-        MatrixXf            w;              // shape [nout,k*nin]
-        VectorXf            b;              // shape [nout]
-        std::vector<float>  scratch_in;     // shape [(p+k),nin]
-        std::vector<float>  scratch_out;    // shape [T//s, nout]
+        size_t   nin{};
+        size_t   nout{};
+        size_t   k{};
+        size_t   s{};
+        size_t   pad() {return (k - 1) + 1 - s;}
+        MatrixXf w;         // shape [nout,k*nin]
+        VectorXf b;         // shape [nout]
+        MatrixXf patches;   // shape [Tout, k*nin]
+        MatrixXf out;       // [Tout_padded, nout]
 
         conv(size_t nin_, size_t nout_, size_t k_, size_t s_=1)
         : nin{nin_}, 
@@ -332,40 +331,32 @@ namespace encodec
 
         std::span<float> operator()(std::span<const float> input)
         {
-            // input  shape [T,nin]
-            // output shape [T//s,nout]
             const size_t p    = pad();
             const size_t Tin  = input.size() / nin;
             const size_t Tinp = Tin+p;
-            const size_t Tout = (Tinp - k) / s + 1;
-            scratch_in.resize((p+k)*nin);
-            scratch_out.resize(Tout*nout);
+            const size_t Tout = (Tinp-k)/s + 1;
 
-            // Padded buf
-            for (size_t i{0} ; i < p ; ++i)
-                std::copy_n(begin(input)+(p-i)*nin, nin, begin(scratch_in)+i*nin);
-            std::copy_n(begin(input), k*nin, begin(scratch_in)+p*nin);
+            patches.resize(Tout, k*nin);
 
+            // im2col : patches[j, :] = padded_input[j*s : j*s+k, :]
             size_t i{0};
-            size_t j{0};
-
-            // Conv in padded windows
-            for (; i < p; i+=s, ++j)
+            for (; (i*s) < p ; ++i)
             {
-                auto x = Eigen::Map<const VectorXf>(&scratch_in[i*nin], k*nin); 
-                auto y = Eigen::Map<VectorXf>(&scratch_out[j*nout],nout);
-                y.noalias() = w*x + b;
+                for (size_t kk = 0; kk < k; ++kk)
+                {
+                    const size_t tp = i*s + kk;
+                    const size_t ti = tp < p ? p - tp : tp - p;
+                    std::copy_n(input.data()+ti*nin,nin,patches.data()+(i*k+kk)*nin);
+                }
             }
-            // Conv in rest
-            for (; (i+k) <= Tinp; i+=s, ++j)
-            {
-                auto x = Eigen::Map<const VectorXf>(&input[(i-p)*nin], k*nin); 
-                auto y = Eigen::Map<VectorXf>(&scratch_out[j*nout],nout);
-                y.noalias() = w*x + b;
-            }
+            for (; i < Tout ; ++i)
+                std::copy_n(input.data()+(i*s-p)*nin,k*nin,patches.data()+i*k*nin);
 
-            assert((j*nout)<=scratch_out.size());
-            return scratch_out;
+            // GEMM
+            out.noalias() = patches * w.transpose();
+            out.rowwise() += b.transpose();
+
+            return std::span<float>{out.data(), (size_t)out.size()};
         }
     };
 
@@ -377,8 +368,7 @@ namespace encodec
         size_t   nout{};
         size_t   k{};
         size_t   s{};
-        size_t   d{1};
-        size_t   pad() {return d * (k - 1) + 1 - s;}
+        size_t   pad() {return (k - 1) + 1 - s;}
         MatrixXf w;         // [nin, k*nout], raw layout [nin,k,nout]
         VectorXf b;         // [nout]
         MatrixXf patches;   // [Tin, k*nout]
@@ -408,7 +398,7 @@ namespace encodec
         {
             const size_t Tin         = input.size() / nin;
             const size_t p           = pad();
-            const size_t Tout_padded = (Tin - 1) * s + d * (k - 1) + 1;
+            const size_t Tout_padded = (Tin - 1) * s + (k - 1) + 1;
             const size_t Tout        = Tout_padded - p;
             out.setZero(Tout_padded, nout);
 
@@ -421,7 +411,7 @@ namespace encodec
             {
                 for (size_t kk{0}; kk < k; ++kk)
                 {
-                    const size_t to = t*s + kk*d;
+                    const size_t to = t*s + kk;
                     out.row(to) += patches.block(t, kk * nout, 1, nout);
                 }
             }
