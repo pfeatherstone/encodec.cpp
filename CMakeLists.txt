@@ -44,8 +44,7 @@ target_compile_options(encodec
   PRIVATE -Wall -Wpedantic
   PRIVATE $<$<BOOL:${AVX_FOUND}>:${AVX_CFLAGS}>
   PRIVATE $<$<BOOL:${NEON_FOUND}>:${NEON_CFLAGS}>
-  PRIVATE $<$<CONFIG:Release>:-ffast-math>
-)
+  PRIVATE $<$<CONFIG:Release>:-ffast-math>)
   
 target_link_libraries(encodec PRIVATE Eigen3::Eigen)
 
@@ -58,9 +57,9 @@ add_executable(encodec_tests src/tests/doctest.cpp)
 target_link_libraries(encodec_example PRIVATE encodec::encodec)
 
 if (ENCODEC_ENABLE_SANITIZERS)
-    message(STATUS "Enabling sanitizers on unit tests")
-    target_compile_options(encodec PUBLIC $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined>)
-    target_link_options(encodec PUBLIC $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined>)
-    target_compile_options(encodec_tests PRIVATE $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined>)
-    target_link_options(encodec_tests PRIVATE $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined>)
+  message(STATUS "Enabling sanitizers on unit tests")
+  target_compile_options(encodec PUBLIC $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined>)
+  target_link_options(encodec PUBLIC $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined>)
+  target_compile_options(encodec_tests PRIVATE $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined>)
+  target_link_options(encodec_tests PRIVATE $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined>)
 endif()
