@@ -53,13 +53,13 @@ add_executable(encodec_example src/examples/main.cpp)
 target_link_libraries(encodec_example PRIVATE encodec::encodec)
 
 # Test
-add_executable(encodec_tests src/tests/doctest.cpp)
-target_link_libraries(encodec_example PRIVATE encodec::encodec)
+add_executable(encodec_tests 
+  src/tests/doctest.cpp
+  src/tests/encodec.cpp)
+target_link_libraries(encodec_tests PRIVATE encodec::encodec)
 
 if (ENCODEC_ENABLE_SANITIZERS)
   message(STATUS "Enabling sanitizers on unit tests")
   target_compile_options(encodec PUBLIC $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined>)
   target_link_options(encodec PUBLIC $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined>)
-  target_compile_options(encodec_tests PRIVATE $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined>)
-  target_link_options(encodec_tests PRIVATE $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined>)
 endif()
