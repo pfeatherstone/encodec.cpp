@@ -46,3 +46,7 @@ target_link_libraries(encodec PRIVATE Eigen3::Eigen)
 # Example
 add_executable(encodec_example src/examples/main.cpp)
 target_link_libraries(encodec_example PRIVATE encodec::encodec)
+
+# Test
+add_executable(encodec_tests src/tests/doctest.cpp)
+target_link_libraries(encodec_example PRIVATE encodec::encodec)
