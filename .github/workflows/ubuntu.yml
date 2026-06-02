@@ -12,7 +12,7 @@ permissions:
   checks: write
   pull-requests: write
 
-  
+
 jobs:
   build-test:
     runs-on: ${{ matrix.os }}
@@ -35,14 +35,16 @@ jobs:
             compiler: gcc
             c_compiler: gcc
             cxx_compiler: g++
-            name: Ubuntu-24.04-GCC
+            name: Ubuntu-24.04-GCC-Sanitizers
             packages: gcc g++
+            extra_cmake: '-DENCODEC_ENABLE_SANITIZERS=ON'
           - os: ubuntu-24.04
             compiler: clang
             c_compiler: clang
             cxx_compiler: clang++
-            name: Ubuntu-24.04-Clang
+            name: Ubuntu-24.04-Clang-Sanitizers
             packages: clang
+            extra_cmake: '-DENCODEC_ENABLE_SANITIZERS=ON'
 
     name: ${{ matrix.name }}
     steps:
@@ -59,7 +61,8 @@ jobs:
           cmake . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_C_COMPILER=${{ matrix.c_compiler }} \
-            -DCMAKE_CXX_COMPILER=${{ matrix.cxx_compiler }}
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx_compiler }} \
+            ${{ matrix.extra_cmake }}
           cmake --build build --parallel
 
       - name: Run unit tests
