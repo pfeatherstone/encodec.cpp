@@ -1,5 +1,6 @@
 #include <chrono>
 #include <cstring>
+#include <vector>
 #include <encodec.h>
 
 using namespace std::chrono;
