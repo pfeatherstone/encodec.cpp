@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.23.0)
-
 project(Encodec LANGUAGES C CXX)
+
+# Helpers
+set(IS_GCC      "$<CXX_COMPILER_ID:GNU>")
+set(IS_CLANG    "$<CXX_COMPILER_ID:Clang>")
 
 # Dependencies
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -15,6 +18,9 @@ CPMAddPackage(
   VERSION 5.0.1
   URL https://gitlab.com/libeigen/eigen/-/archive/5.0.1/eigen-5.0.1.tar.gz
   OPTIONS "EIGEN_BUILD_DOC OFF" "EIGEN_BUILD_PKGCONFIG OFF" "EIGEN_BUILD_TESTING OFF" "EIGEN_BUILD_DEMOS OFF" "EIGEN_BUILD_SPBENCH OFF")
+
+# Options
+option(ENCODEC_ENABLE_SANITIZERS "Build unit tests with sanitizers" OFF)
 
 # Lib
 get_filename_component(ENCODER_DATA ${CMAKE_CURRENT_SOURCE_DIR}/src/lib/weights/encoder.dat REALPATH)
@@ -50,3 +56,11 @@ target_link_libraries(encodec_example PRIVATE encodec::encodec)
 # Test
 add_executable(encodec_tests src/tests/doctest.cpp)
 target_link_libraries(encodec_example PRIVATE encodec::encodec)
+
+if (ENCODEC_ENABLE_SANITIZERS)
+    message(STATUS "Enabling sanitizers on unit tests")
+      target_compile_options(encodec PRIVATE $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined>)
+    target_link_options(encodec PRIVATE $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined>)
+    target_compile_options(encodec_tests PRIVATE $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined>)
+    target_link_options(encodec_tests PRIVATE $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined>)
+endif()
