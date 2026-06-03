@@ -1,16 +1,8 @@
 #include <cassert>
-#include <cstring>
-#include <cmath>
 #include <vector>
-#include <limits>
-#include <numeric>
-#include <algorithm>
 #include <Eigen/Dense>
 #include "encodec.h"
 #include "incbin.h"
-#if defined(__AVX2__)
-#include <immintrin.h>
-#endif
 
 //----------------------------------------------------------------------------------------------------------------
 
