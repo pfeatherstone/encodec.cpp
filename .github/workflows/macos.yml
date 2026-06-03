@@ -1,0 +1,64 @@
+name: macOS
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+
+jobs:
+  build-test:
+    runs-on: macos-latest
+
+    strategy:
+      matrix:
+        include:
+          - name: macOS-latest-AppleClang
+
+          - name: macOS-latest-AppleClang-Sanitizers
+            extra_cmake: '-DENCODEC_ENABLE_SANITIZERS=ON'
+
+    name: ${{ matrix.name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ninja cmake
+
+      - name: Run CMake configuration and build
+        run: |
+          cmake . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            ${{ matrix.extra_cmake }}
+          cmake --build build --parallel
+
+      - name: Run unit tests
+        run: |
+          mkdir -p build/test-results
+          ./build/encodec_tests --reporters=junit --out=build/test-results/encodec-tests-${{ matrix.name }}.xml
+
+      - name: Upload JUnit XML artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.name }}
+          path: build/test-results/*.xml
+
+      - name: Publish test results
+        if: (!cancelled())
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: build/test-results/*.xml
+          check_name: Test Results - ${{ matrix.name }}
