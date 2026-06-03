@@ -4,6 +4,8 @@ project(Encodec LANGUAGES C CXX)
 # Helpers
 set(IS_GCC      "$<CXX_COMPILER_ID:GNU>")
 set(IS_CLANG    "$<CXX_COMPILER_ID:Clang>")
+set(IS_MSVC     "$<CXX_COMPILER_ID:MSVC>")
+set(IS_NOT_MSVC "$<NOT:${IS_MSVC}>")
 
 # Dependencies
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -41,7 +43,7 @@ target_include_directories(encodec
   PUBLIC $<INSTALL_INTERFACE:include>)
 
 target_compile_options(encodec 
-  PRIVATE -Wall -Wpedantic
+  PRIVATE $<${IS_NOT_MSVC}:-Wall -Wextra -Wpedantic -Werror>
   PRIVATE $<$<BOOL:${AVX_FOUND}>:${AVX_CFLAGS}>
   PRIVATE $<$<BOOL:${NEON_FOUND}>:${NEON_CFLAGS}>
   PRIVATE $<$<CONFIG:Release>:-ffast-math>)
