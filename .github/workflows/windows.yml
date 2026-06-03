@@ -1,0 +1,42 @@
+name: Windows
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  windows-msvc:
+    runs-on: windows-latest
+    name: Windows MSVC
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build tests
+        run: |
+          cmake . -B build
+          cmake --build build --config RelWithDebInfo --parallel
+
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/test-results | Out-Null
+          .build\RelWithDebInfo\encodec_tests.exe --reporters=junit --out=build/test-results/encodec-tests-${{ matrix.name }}.xml
+
+      - name: Upload JUnit XML artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.name }}
+          path: build/test-results/*.xml
+
+      - name: Publish test results
+        if: (!cancelled())
+        uses: EnricoMi/publish-unit-test-result-action/windows@v2
+        with:
+          files: build/test-results/*.xml
+          check_name: Test Results - ${{ matrix.name }}
