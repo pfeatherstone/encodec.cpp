@@ -25,7 +25,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/test-results | Out-Null
-          .build\RelWithDebInfo\encodec_tests.exe --reporters=junit --out=build/test-results/encodec-tests-${{ matrix.name }}.xml
+          build\RelWithDebInfo\encodec_tests.exe --reporters=junit --out=build/test-results/encodec-tests-${{ matrix.name }}.xml
 
       - name: Upload JUnit XML artifact
         if: always()
