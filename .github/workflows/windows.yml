@@ -8,6 +8,12 @@ on:
     branches:
       - '**'
 
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+  
 jobs:
   windows-msvc:
     runs-on: windows-latest
