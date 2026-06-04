@@ -24,19 +24,37 @@ CPMAddPackage(
 # Options
 option(ENCODEC_ENABLE_SANITIZERS "Build unit tests with sanitizers" OFF)
 
-# Lib
-get_filename_component(ENCODER_DATA ${CMAKE_CURRENT_SOURCE_DIR}/src/lib/weights/encoder.dat REALPATH)
-get_filename_component(DECODER_DATA ${CMAKE_CURRENT_SOURCE_DIR}/src/lib/weights/decoder.dat REALPATH)
-get_filename_component(RVQ_DATA     ${CMAKE_CURRENT_SOURCE_DIR}/src/lib/weights/rvq.dat     REALPATH)
+# Weights
+set(WEIGHTS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/lib/weights")
+set(WEIGHTS_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/weights")
 
-add_library(encodec src/lib/encodec.cpp)
+function(add_zipped_weight_source out_var zip_file output_name)
+    set(output_file "${CMAKE_CURRENT_BINARY_DIR}/generated/weights/${output_name}")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/weights")
+
+    add_custom_command(
+        OUTPUT "${output_file}"
+        COMMAND ${CMAKE_COMMAND} -E tar xf "${zip_file}"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/weights"
+        DEPENDS "${zip_file}"
+        COMMENT "Extracting ${output_name}"
+        VERBATIM
+    )
+
+    set(${out_var} "${output_file}" PARENT_SCOPE)
+endfunction()
+
+add_zipped_weight_source(ENCODER_WEIGHTS_C "${CMAKE_CURRENT_SOURCE_DIR}/src/lib/weights/encoder.c.zip" "encoder.c")
+add_zipped_weight_source(DECODER_WEIGHTS_C "${CMAKE_CURRENT_SOURCE_DIR}/src/lib/weights/decoder.c.zip" "decoder.c")
+add_zipped_weight_source(    RVQ_WEIGHTS_C "${CMAKE_CURRENT_SOURCE_DIR}/src/lib/weights/rvq.c.zip"     "rvq.c")
+
+add_library(encodec 
+  src/lib/encodec.cpp
+  ${ENCODER_WEIGHTS_C}
+  ${DECODER_WEIGHTS_C}
+  ${RVQ_WEIGHTS_C})
 add_library(encodec::encodec ALIAS encodec)
 target_compile_features(encodec PUBLIC cxx_std_20)
-
-target_compile_definitions(encodec PRIVATE 
-  ENCODER_DATA="${ENCODER_DATA}"
-  DECODER_DATA="${DECODER_DATA}"
-  RVQ_DATA="${RVQ_DATA}")
 
 target_include_directories(encodec
   PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/lib>

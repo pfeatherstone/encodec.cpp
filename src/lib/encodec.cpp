@@ -2,7 +2,6 @@
 #include <vector>
 #include <Eigen/Dense>
 #include "encodec.h"
-#include "incbin.h"
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -13,9 +12,12 @@ using ArrayXf       = Eigen::Array<float, -1, 1>;
 
 //----------------------------------------------------------------------------------------------------------------
 
-INCBIN(encoder, ENCODER_DATA);
-INCBIN(decoder, DECODER_DATA);
-INCBIN(rvq,     RVQ_DATA);
+extern const float  ENCODER_WEIGHTS[];
+extern const size_t ENCODER_SIZE;
+extern const float  DECODER_WEIGHTS[];
+extern const size_t DECODER_SIZE;
+extern const float  RVQ_WEIGHTS[];
+extern const size_t RVQ_SIZE;
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -45,10 +47,6 @@ namespace encodec
     constexpr unsigned  NLEVELS         = 32;
     constexpr unsigned  CODEBOOK_SIZE   = 1024;
     constexpr unsigned  CODEBOOK_DIM    = 128;
-
-    static const std::span encoder_weights{(const float*)gencoderData, gencoderSize/sizeof(float)};
-    static const std::span decoder_weights{(const float*)gdecoderData, gdecoderSize/sizeof(float)};
-    static const std::span rvq_weights    {(const float*)grvqData,     grvqSize/sizeof(float)};
 
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
@@ -125,7 +123,7 @@ namespace encodec
 
     auto codebook(size_t l)
     {
-        return Eigen::Map<const MatrixXf>(&rvq_weights[l*CODEBOOK_SIZE*CODEBOOK_DIM], CODEBOOK_SIZE, CODEBOOK_DIM);
+        return Eigen::Map<const MatrixXf>(&RVQ_WEIGHTS[l*CODEBOOK_SIZE*CODEBOOK_DIM], CODEBOOK_SIZE, CODEBOOK_DIM);
     }
     
 //----------------------------------------------------------------------------------------------------------------
@@ -636,7 +634,7 @@ namespace encodec
           a6(true),
           b6(512, 128, 7)
         {
-            auto weights = encoder_weights;
+            auto weights = std::span{ENCODER_WEIGHTS, ENCODER_SIZE};
             weights = b0.load_weights(weights);
             weights = b1.load_weights(weights);
             weights = b2.load_weights(weights);
@@ -644,7 +642,7 @@ namespace encodec
             weights = b4.load_weights(weights);
             weights = b5.load_weights(weights);
             weights = b6.load_weights(weights);
-            assert(weights.size()==0);
+            if (weights.size() > 0) throw std::runtime_error("Failed to load encoder weights");
         }
 
         std::span<const uint8_t> encode(std::span<const float> audio, unsigned int num_quantizers)
@@ -686,7 +684,7 @@ namespace encodec
           a6(true),
           b6( 32,   1, 7)
         {
-            auto weights = decoder_weights;
+            auto weights = std::span{DECODER_WEIGHTS, DECODER_SIZE};
             weights = b0.load_weights(weights);
             weights = b1.load_weights(weights);
             weights = b2.load_weights(weights);
@@ -694,7 +692,7 @@ namespace encodec
             weights = b4.load_weights(weights);
             weights = b5.load_weights(weights);
             weights = b6.load_weights(weights);
-            assert(weights.size()==0);
+            if (weights.size() > 0) throw std::runtime_error("Failed to load decoder weights");
         }
 
         std::span<const float> decode(std::span<const uint8_t> packet, unsigned int num_quantizers)
