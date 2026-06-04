@@ -20,7 +20,7 @@ std::span<const float>   audio2 = dec.decode(packet, bps);
 
 ## Notes
 
-* The weights are compiled into the library using the fantastic [incbin](https://github.com/graphitemaster/incbin) library.
+* The weights are compiled into the library.
 
 * You must manually implement streaming for now. Partition your audio into 1s chunks with 10ms overlap. For decoding, use a linear weighting in the overlap regions.
 
