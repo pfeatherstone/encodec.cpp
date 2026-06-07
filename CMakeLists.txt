@@ -56,11 +56,6 @@ target_sources(encodec PRIVATE
   ${DECODER_WEIGHTS_CPP}
   ${RVQ_WEIGHTS_CPP})
 
-target_compile_definitions(encodec PRIVATE 
-  ENCODER_DATA="${ENCODER_DATA}"
-  DECODER_DATA="${DECODER_DATA}"
-  RVQ_DATA="${RVQ_DATA}")
-
 target_include_directories(encodec
   PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/lib>
   PUBLIC $<INSTALL_INTERFACE:include>)
