@@ -5,68 +5,10 @@
 
 using namespace std::chrono;
 
-template<class T>
-auto load_file(const char* file)
-{
-    std::vector<T> data;
-    FILE* fp = fopen(file, "rb");
-    if (!fp)
-    {
-        printf("Failed to open `%s`\n", file);
-        return data;
-    }
-
-    fseek(fp, 0, SEEK_END);
-    const auto size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    data.resize(size/sizeof(T));
-    auto nread = fread((char*)&data[0], sizeof(T), data.size(), fp);
-    if (nread != data.size())
-        printf("Read %zu/%zu samples\n", nread, data.size());
-    return data;
-}
-
-template<class C>
-void save_file(const char* file, const C& data)
-{
-    using T = typename C::value_type;
-
-    FILE* fp = fopen(file, "wb");
-    if (!fp)
-    {
-        printf("Failed to open `%s`\n", file);
-        return;
-    }
-
-    fwrite(data.data(), sizeof(T), data.size(), fp);
-    fclose(fp);
-}
-
-void test_birch_canoe(encodec::encoder& enc, encodec::decoder& dec, unsigned int bps)
-{
-    const auto nlevels = encodec::get_encoded_nquantizers(bps);
-    const auto audio   = load_file<float>("original.dat");
-    const auto packets = enc.encode(audio, nlevels);
-    const auto audio2  = dec.decode(packets, nlevels);
-    char codes_file[128] = {0};
-    char audio_file[128] = {0};
-    snprintf(codes_file, sizeof(codes_file), "codes_%ubps_%unquants.dat", bps, nlevels);
-    snprintf(audio_file, sizeof(audio_file), "encoded_%ubps_%unquants.dat", bps, nlevels);
-    save_file(codes_file,  packets);
-    save_file(audio_file, audio2);
-}
-
 int main()
 {
     encodec::encoder enc;
     encodec::decoder dec;
-
-    printf("Testing on birch canoe...\n");
-    test_birch_canoe(enc, dec, 24000);
-    // test_birch_canoe(enc, dec, 12000);
-    // test_birch_canoe(enc, dec, 6000);
-    // test_birch_canoe(enc, dec, 3000);
-    printf("Testing on birch canoe... Done\n");
 
     float audio[24000];
     memset(audio, 0, sizeof(audio));
