@@ -12,15 +12,6 @@ using ArrayXf       = Eigen::Array<float, -1, 1>;
 
 //----------------------------------------------------------------------------------------------------------------
 
-extern const float       ENCODER_WEIGHTS[];
-extern const std::size_t ENCODER_SIZE;
-extern const float       DECODER_WEIGHTS[];
-extern const std::size_t DECODER_SIZE;
-extern const float       RVQ_WEIGHTS[];
-extern const std::size_t RVQ_SIZE;
-
-//----------------------------------------------------------------------------------------------------------------
-
 namespace encodec
 {
 
@@ -117,27 +108,29 @@ namespace encodec
 //----------------------------------------------------------------------------------------------------------------
 
     unsigned int get_encodec_bps(unsigned int nlevels)      { return (SAMPLE_RATE / STRIDE) * nlevels * 10; }
-    unsigned int get_encoded_nquantizers(unsigned int bps)  { return (bps / 10) * STRIDE / SAMPLE_RATE; }
-
-//----------------------------------------------------------------------------------------------------------------
-
-    auto codebook(size_t l)
-    {
-        return Eigen::Map<const MatrixXf>(&RVQ_WEIGHTS[l*CODEBOOK_SIZE*CODEBOOK_DIM], CODEBOOK_SIZE, CODEBOOK_DIM);
-    }
+    unsigned int get_encoded_nquantizers(unsigned int bps)  { return (bps / 10) * STRIDE / SAMPLE_RATE; }   
     
 //----------------------------------------------------------------------------------------------------------------
 
     struct rvq
     {
-        VectorXf Cnorms[NLEVELS];
-        MatrixXf dists;
-        std::vector<uint16_t> codes;
-        std::vector<uint8_t>  codes_packed;
-        std::vector<float>    feats;
+        std::vector<float>      weights;
+        VectorXf                Cnorms[NLEVELS];
+        MatrixXf                dists;
+        std::vector<uint16_t>   codes;
+        std::vector<uint8_t>    codes_packed;
+        std::vector<float>      feats;
 
-        rvq()
+        auto codebook(size_t l) const
         {
+            return Eigen::Map<const MatrixXf>(&weights[l*CODEBOOK_SIZE*CODEBOOK_DIM], CODEBOOK_SIZE, CODEBOOK_DIM);
+        }
+        
+        rvq(std::span<const float> weights_) : weights(weights_.begin(), weights_.end())
+        {
+            if (weights.size() != (NLEVELS*CODEBOOK_SIZE*CODEBOOK_DIM)) 
+                throw std::runtime_error("Bad rvq weights");
+
             for (size_t l{0} ; l < NLEVELS ; ++l)
                 Cnorms[l] = codebook(l).rowwise().squaredNorm();
         }
@@ -624,7 +617,7 @@ namespace encodec
         conv          b6;
         rvq           rvq_;
 
-        impl()
+        impl(std::span<const float> weights, std::span<const float> rvq_weights)
         : b0(  1,  32, 7),
           b1( 32,  64, 2),
           b2( 64, 128, 4),
@@ -632,9 +625,9 @@ namespace encodec
           b4(256, 512, 8),
           b5(512),
           a6(true),
-          b6(512, 128, 7)
+          b6(512, 128, 7),
+          rvq_(rvq_weights)
         {
-            auto weights = std::span{ENCODER_WEIGHTS, ENCODER_SIZE};
             weights = b0.load_weights(weights);
             weights = b1.load_weights(weights);
             weights = b2.load_weights(weights);
@@ -674,7 +667,7 @@ namespace encodec
         conv          b6;
         rvq           rvq_;
 
-        impl()
+        impl(std::span<const float> weights, std::span<const float> rvq_weights)
         : b0(128, 512, 7),
           b1(512),
           b2(512, 256, 8),
@@ -682,9 +675,9 @@ namespace encodec
           b4(128,  64, 4),
           b5( 64,  32, 2),
           a6(true),
-          b6( 32,   1, 7)
+          b6( 32,   1, 7),
+          rvq_(rvq_weights)
         {
-            auto weights = std::span{DECODER_WEIGHTS, DECODER_SIZE};
             weights = b0.load_weights(weights);
             weights = b1.load_weights(weights);
             weights = b2.load_weights(weights);
@@ -713,7 +706,7 @@ namespace encodec
     
 //----------------------------------------------------------------------------------------------------------------
 
-    encoder::encoder() : state{std::make_unique<impl>()} {}
+    encoder::encoder(std::span<const float> w0, std::span<const float> w1) : state{std::make_unique<impl>(w0,w1)} {}
     encoder::~encoder()                          = default;
     encoder::encoder(encoder&& other)            = default;
     encoder& encoder::operator=(encoder&& other) = default;
@@ -725,7 +718,7 @@ namespace encodec
 
 //----------------------------------------------------------------------------------------------------------------
 
-    decoder::decoder() : state{std::make_unique<impl>()} {}
+    decoder::decoder(std::span<const float> w0, std::span<const float> w1) : state{std::make_unique<impl>(w0,w1)} {}
     decoder::~decoder()                          = default;
     decoder::decoder(decoder&& other)            = default;
     decoder& decoder::operator=(decoder&& other) = default;

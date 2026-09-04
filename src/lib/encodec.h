@@ -21,7 +21,7 @@ namespace encodec
         std::unique_ptr<impl> state;
         
     public:
-        encoder();
+        encoder(std::span<const float> encoder_weights, std::span<const float> rvq_weights);
         ~encoder();
         encoder(encoder&& other);
         encoder& operator=(encoder&& other);
@@ -38,7 +38,7 @@ namespace encodec
         std::unique_ptr<impl> state;
         
     public:
-        decoder();
+        decoder(std::span<const float> decocer_weights, std::span<const float> rvq_weights);
         ~decoder();
         decoder(decoder&& other);
         decoder& operator=(decoder&& other);

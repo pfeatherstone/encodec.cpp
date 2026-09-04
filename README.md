@@ -9,18 +9,23 @@ A C++ implementation of Meta's [Encodec](https://audiocraft.metademolab.com/enco
 ## API
 
 ```cpp
-encodec::encoder enc;
-encodec::decoder dec;
+#include <encodec.h>
+#include <encodec_encoder24.h>
+#include <encodec_decoder24.h>
+#include <encodec_rvq24.h>
+
+encodec::encoder enc(encodec::get_encoder24_weights(), encodec::get_rvq24_weights());
+encodec::decoder dec(encodec::get_decoder24_weights(), encodec::get_rvq24_weights());
 
 float audio[24000];
 size_t bps = 24000; // 12000, 6000 or 3000
-std::span<const uint8_t> packet = enc.encode(audio, bps);
-std::span<const float>   audio2 = dec.decode(packet, bps);
+std::span<const uint8_t> packet = enc.encode(audio,  encodec::get_encoded_nquantizers(bps));
+std::span<const float>   audio2 = dec.decode(packet, encodec::get_encoded_nquantizers(bps));
 ```
 
 ## Notes
 
-* The weights are compiled into the library.
+* The weights are compiled into separate libraries and accessed via the weights headers (e.g. "encodec_encoder24.h", "encodec_decoder24.h", etc)
 
 * You must manually implement streaming for now. Partition your audio into 1s chunks with 10ms overlap. For decoding, use a linear weighting in the overlap regions.
 
