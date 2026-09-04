@@ -1,7 +1,7 @@
 #include <chrono>
 #include <cstring>
 #include <vector>
-#include <format>
+#include <sstream>
 #include <encodec.h>
 #include <encodec_encoder24.h>
 #include <encodec_decoder24.h>
@@ -46,14 +46,21 @@ void save_file(const char* file, const C& data)
     fclose(fp);
 }
 
+auto format(auto... args)
+{
+    std::stringstream ss;
+    (ss << ... << args);
+    return ss.str();
+}
+
 void test_birch_canoe(encodec::encoder& enc, encodec::decoder& dec, unsigned int bps)
 {
     const auto nlevels = encodec::get_encoded_nquantizers(bps);
     const auto audio   = load_file<float>("original.dat");
     const auto packets = enc.encode(audio, nlevels);
     const auto audio2  = dec.decode(packets, nlevels);
-    save_file(std::format("codes_{}bps_{}nquants.dat", bps, nlevels).c_str(),  packets);
-    save_file(std::format("encoded_{}bps_{}nquants.dat", bps, nlevels).c_str(), audio2);
+    save_file(format("codes_", bps, "bps_", nlevels, "nquants.dat").c_str(),  packets);
+    save_file(format("encoded_", bps, "bps_", nlevels, "nquants.dat").c_str(), audio2);
 }
 
 void bench(encodec::encoder& enc, encodec::decoder& dec, unsigned int bps)

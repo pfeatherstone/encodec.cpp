@@ -41,6 +41,8 @@ TEST_SUITE("[ENCODEC]")
             auto packet = enc.encode(audio, num_quants);
             auto audio2 = dec.decode(packet, num_quants);
             packet_buf.assign(begin(packet), end(packet));
+            (void)packet;
+            (void)audio2;
 
             bench.run(format("encode 24khz %zu bps %zu quants", bps, num_quants), [&] {
                 enc.encode(audio, num_quants);
