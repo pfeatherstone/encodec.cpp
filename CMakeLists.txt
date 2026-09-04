@@ -103,6 +103,7 @@ endif()
 if (ENCODEC_BUILD_BENCH)
   add_executable(encodec_bench
     src/bench/main.cpp
+    src/bench/format.cpp
     src/bench/encodec.cpp)
 
   target_link_libraries(encodec_bench PRIVATE

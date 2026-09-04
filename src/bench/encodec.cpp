@@ -1,8 +1,8 @@
 #include <algorithm>
 #include <random>
-#include <format>
 #include "../tests/doctest.h"
 #include "nanobench.h"
+#include "format.h"
 #include <encodec.h>
 #include <encodec_encoder24.h>
 #include <encodec_decoder24.h>
@@ -42,11 +42,11 @@ TEST_SUITE("[ENCODEC]")
             auto audio2 = dec.decode(packet, num_quants);
             packet_buf.assign(begin(packet), end(packet));
 
-            bench.run(std::format("encode 24khz {} bps {} quants", bps, num_quants), [&] {
+            bench.run(format("encode 24khz %zu bps %zu quants", bps, num_quants), [&] {
                 enc.encode(audio, num_quants);
             });
 
-            bench.run(std::format("decode 24khz {} bps {} quants", bps, num_quants), [&] {
+            bench.run(format("decode 24khz %zu bps %zu quants", bps, num_quants), [&] {
                 dec.decode(packet_buf, num_quants);
             });
         }
