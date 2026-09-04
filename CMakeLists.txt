@@ -22,6 +22,9 @@ CPMAddPackage(
   OPTIONS "EIGEN_BUILD_DOC OFF" "EIGEN_BUILD_PKGCONFIG OFF" "EIGEN_BUILD_TESTING OFF" "EIGEN_BUILD_DEMOS OFF" "EIGEN_BUILD_SPBENCH OFF")
 
 # Options
+option(ENCODEC_BUILD_TESTS       "Build unit tests" ${PROJECT_IS_TOP_LEVEL})
+option(ENCODEC_BUILD_BENCH       "Build benchmarks" ${PROJECT_IS_TOP_LEVEL})
+option(ENCODEC_BUILD_EXAMPLES    "Build examples"   ${PROJECT_IS_TOP_LEVEL})
 option(ENCODEC_ENABLE_SANITIZERS "Build unit tests with sanitizers" OFF)
 
 # Weights
@@ -75,40 +78,48 @@ target_compile_options(encodec
   
 target_link_libraries(encodec PRIVATE Eigen3::Eigen)
 
-# Test
-add_executable(encodec_tests 
-  src/tests/doctest.cpp
-  src/tests/encodec.cpp)
-
-target_link_libraries(encodec_tests PRIVATE
-  encodec::encodec 
-  encodec::encoder24
-  encodec::decoder24
-  encodec::rvq24)
-
 if (ENCODEC_ENABLE_SANITIZERS)
-  message(STATUS "Enabling sanitizers on unit tests")
+  message(STATUS "Enabling sanitizers")
   target_compile_options(encodec PUBLIC $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined;-fno-omit-frame-pointer;-fno-sanitize-recover=undefined>)
   target_link_options(encodec PUBLIC $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined>)
 endif()
 
+# Test
+if (ENCODEC_BUILD_TESTS)
+  add_executable(encodec_tests 
+    src/tests/doctest.cpp
+    src/tests/encodec.cpp)
+
+  target_link_libraries(encodec_tests PRIVATE
+    encodec::encodec 
+    encodec::encoder24
+    encodec::decoder24
+    encodec::rvq24)
+
+  target_compile_options(encodec_tests PRIVATE $<${IS_NOT_MSVC}:-Wall -Wextra -Wpedantic -Werror>)
+endif()
+
 # Bench
-add_executable(encodec_bench
-  src/bench/main.cpp
-  src/bench/encodec.cpp)
+if (ENCODEC_BUILD_BENCH)
+  add_executable(encodec_bench
+    src/bench/main.cpp
+    src/bench/encodec.cpp)
 
-target_link_libraries(encodec_bench PRIVATE
-  encodec::encodec 
-  encodec::encoder24
-  encodec::decoder24
-  encodec::rvq24)
+  target_link_libraries(encodec_bench PRIVATE
+    encodec::encodec 
+    encodec::encoder24
+    encodec::decoder24
+    encodec::rvq24)
 
-target_compile_options(encodec_bench PRIVATE $<${IS_NOT_MSVC}:-Wall -Wextra -Wpedantic -Werror>)
+  target_compile_options(encodec_bench PRIVATE $<${IS_NOT_MSVC}:-Wall -Wextra -Wpedantic -Werror>)
+endif()
 
 # Example
-add_executable(encodec_example src/examples/main.cpp)
-target_link_libraries(encodec_example PRIVATE 
-  encodec::encodec 
-  encodec::encoder24
-  encodec::decoder24
-  encodec::rvq24)
+if (ENCODEC_BUILD_EXAMPLES)
+  add_executable(encodec_example src/examples/main.cpp)
+  target_link_libraries(encodec_example PRIVATE 
+    encodec::encodec 
+    encodec::encoder24
+    encodec::decoder24
+    encodec::rvq24)
+endif()

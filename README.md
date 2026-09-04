@@ -6,6 +6,49 @@
 
 A C++ implementation of Meta's [Encodec](https://audiocraft.metademolab.com/encodec.html) using [Eigen](https://gitlab.com/libeigen/eigen).
 
+## Install
+
+Requirements:
+* CMake 3.23 or newer
+* A C++20 compiler
+* [Git Large File Storage (LFS) ](https://git-lfs.com/)
+
+Using cmake FetchContent:
+
+```cmake
+FetchContent_Declare(
+  encodec
+  GIT_REPOSITORY https://github.com/pfeatherstone/encodec.cpp.git
+  GIT_TAG        <tag-or-commit>
+  GIT_SHALLOW    TRUE)
+
+FetchContent_MakeAvailable(encodec)
+
+target_link_libraries(my_encoder_only_app PRIVATE 
+  encodec::encodec 
+  encodec::encoder24
+  encodec::rvq24)
+
+target_link_libraries(my_decoder_only_app PRIVATE 
+  encodec::encodec 
+  encodec::decoder24
+  encodec::rvq24)
+```
+
+Using CPM:
+
+```cmake
+CPMAddPackage("gh:pfeatherstone/encodec.cpp#<tag>")
+
+target_link_libraries(my_app PRIVATE 
+  encodec::encodec 
+  encodec::encoder24
+  encodec::decoder24
+  encodec::rvq24)
+```
+
+The `encodec::encoder24`, `encodec::decoder24` and `encodec::rvq24` targets are compiled weight targets.
+
 ## API
 
 ```cpp
@@ -25,7 +68,7 @@ std::span<const float>   audio2 = dec.decode(packet, encodec::get_encoded_nquant
 
 ## Notes
 
-* The weights are compiled into separate libraries and accessed via the weights headers (e.g. "encodec_encoder24.h", "encodec_decoder24.h", etc)
+* Model weights are compiled into separate libraries, allowing applications to link only the encoder, decoder, and RVQ weights they require.
 
 * You must manually implement streaming for now. Partition your audio into 1s chunks with 10ms overlap. For decoding, use a linear weighting in the overlap regions.
 
