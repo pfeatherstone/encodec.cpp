@@ -1,1 +1,2 @@
 src/lib/weights/*.cpp.gz filter=lfs diff=lfs merge=lfs -text
+src/lib/weights/*.cpp.xz filter=lfs diff=lfs merge=lfs -text
