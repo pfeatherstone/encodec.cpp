@@ -1,14 +1,66 @@
 #include <chrono>
 #include <cstring>
 #include <vector>
+#include <format>
 #include <encodec.h>
+#include <encodec_encoder24.h>
+#include <encodec_decoder24.h>
+#include <encodec_rvq24.h>
 
 using namespace std::chrono;
 
+// template<class T>
+// auto load_file(const char* file)
+// {
+//     std::vector<T> data;
+//     FILE* fp = fopen(file, "rb");
+//     if (!fp)
+//     {
+//         printf("Failed to open `%s`\n", file);
+//         return data;
+//     }
+
+//     fseek(fp, 0, SEEK_END);
+//     const auto size = ftell(fp);
+//     fseek(fp, 0, SEEK_SET);
+//     data.resize(size/sizeof(T));
+//     auto nread = fread((char*)&data[0], sizeof(T), data.size(), fp);
+//     if (nread != data.size())
+//         printf("Read %zu/%zu samples\n", nread, data.size());
+//     return data;
+// }
+
+// template<class C>
+// void save_file(const char* file, const C& data)
+// {
+//     using T = typename C::value_type;
+
+//     FILE* fp = fopen(file, "wb");
+//     if (!fp)
+//     {
+//         printf("Failed to open `%s`\n", file);
+//         return;
+//     }
+
+//     fwrite(data.data(), sizeof(T), data.size(), fp);
+//     fclose(fp);
+// }
+
+// void test_birch_canoe(encodec::encoder& enc, encodec::decoder& dec, unsigned int bps)
+// {
+//     const auto nlevels = encodec::get_encoded_nquantizers(bps);
+//     const auto audio   = load_file<float>("original.dat");
+//     const auto packets = enc.encode(audio, nlevels);
+//     const auto audio2  = dec.decode(packets, nlevels);
+//     save_file(std::format("codes_{}bps_{}nquants.dat", bps, nlevels).c_str(),  packets);
+//     save_file(std::format("encoded_{}bps_{}nquants.dat", bps, nlevels).c_str(), audio2);
+// }
+
+
 int main()
 {
-    encodec::encoder enc;
-    encodec::decoder dec;
+    encodec::encoder enc(encodec::get_encoder24_weights(), encodec::get_rvq24_weights());
+    encodec::decoder dec(encodec::get_decoder24_weights(), encodec::get_rvq24_weights());
 
     float audio[24000];
     memset(audio, 0, sizeof(audio));
