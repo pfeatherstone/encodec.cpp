@@ -3,9 +3,6 @@
 #include <random>
 #include "doctest.h"
 #include <encodec.h>
-#include <encodec_encoder24.h>
-#include <encodec_decoder24.h>
-#include <encodec_rvq24.h>
 
 static std::mt19937_64 RAND;
 

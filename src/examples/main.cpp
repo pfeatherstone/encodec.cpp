@@ -3,9 +3,6 @@
 #include <vector>
 #include <sstream>
 #include <encodec.h>
-#include <encodec_encoder24.h>
-#include <encodec_decoder24.h>
-#include <encodec_rvq24.h>
 
 using namespace std::chrono;
 

@@ -53,9 +53,6 @@ The `encodec::encoder24`, `encodec::decoder24` and `encodec::rvq24` targets are 
 
 ```cpp
 #include <encodec.h>
-#include <encodec_encoder24.h>
-#include <encodec_decoder24.h>
-#include <encodec_rvq24.h>
 
 encodec::encoder enc(encodec::get_encoder24_weights(), encodec::get_rvq24_weights());
 encodec::decoder dec(encodec::get_decoder24_weights(), encodec::get_rvq24_weights());

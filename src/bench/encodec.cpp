@@ -4,9 +4,6 @@
 #include "../tests/doctest.h"
 #include "nanobench.h"
 #include <encodec.h>
-#include <encodec_encoder24.h>
-#include <encodec_decoder24.h>
-#include <encodec_rvq24.h>
 
 using namespace std::chrono_literals;
 using std::begin;

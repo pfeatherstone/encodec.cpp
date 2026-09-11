@@ -14,6 +14,12 @@ namespace encodec
 
 //----------------------------------------------------------------------------------------------------------------
 
+    std::span<const float> get_encoder24_weights();
+    std::span<const float> get_decoder24_weights();
+    std::span<const float> get_rvq24_weights();
+
+//----------------------------------------------------------------------------------------------------------------
+
     class encoder
     {
     private:
