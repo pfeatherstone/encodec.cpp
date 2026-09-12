@@ -1,3 +1,4 @@
+pytest
 torch
-transformers
 einops
+transformers
