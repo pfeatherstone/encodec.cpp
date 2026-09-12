@@ -4,15 +4,17 @@
 #include "doctest.h"
 #include <encodec.h>
 
+using namespace encodec;
+
 static std::mt19937_64 RAND;
 
 TEST_SUITE("[ENCODEC]") 
 {
     TEST_CASE("sizes") 
     {
-        constexpr size_t BPS[] = {24000, 12000, 6000, 3000};
-        encodec::encoder enc(encodec::get_encoder24_weights(), encodec::get_rvq24_weights());
-        encodec::decoder dec(encodec::get_decoder24_weights(), encodec::get_rvq24_weights());
+        constexpr bitrates BPS[] = {BPS_24000, BPS_12000, BPS_6000, BPS_3000};
+        encoder enc(get_encoder24_weights(), get_rvq24_weights());
+        decoder dec(get_decoder24_weights(), get_rvq24_weights());
 
         for (size_t b{70} ; b < 75 ; ++b)
         {
@@ -21,8 +23,8 @@ TEST_SUITE("[ENCODEC]")
 
             for (auto bps : BPS)
             {
-                auto packet = enc.encode(audio,  encodec::get_encoded_nquantizers(bps));
-                auto audio2 = dec.decode(packet, encodec::get_encoded_nquantizers(bps));
+                auto packet = enc.encode(audio,  get_encodec_nquantizers(RATE_24KHZ, bps));
+                auto audio2 = dec.decode(packet, get_encodec_nquantizers(RATE_24KHZ, bps));
                 REQUIRE(audio2.size()==audio.size());
             }
         }

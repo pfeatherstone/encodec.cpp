@@ -5,6 +5,7 @@
 #include <encodec.h>
 
 using namespace std::chrono;
+using namespace encodec;
 
 template<class T>
 auto load_file(const char* file)
@@ -50,9 +51,9 @@ auto format(auto... args)
     return ss.str();
 }
 
-void test_birch_canoe(encodec::encoder& enc, encodec::decoder& dec, unsigned int bps)
+void test_birch_canoe(encoder& enc, decoder& dec, bitrates bps)
 {
-    const auto nlevels = encodec::get_encoded_nquantizers(bps);
+    const auto nlevels = get_encodec_nquantizers(RATE_24KHZ, bps);
     const auto audio   = load_file<float>("original.dat");
     const auto packets = enc.encode(audio, nlevels);
     const auto audio2  = dec.decode(packets, nlevels);
@@ -60,25 +61,25 @@ void test_birch_canoe(encodec::encoder& enc, encodec::decoder& dec, unsigned int
     save_file(format("encoded_", bps, "bps_", nlevels, "nquants.dat").c_str(), audio2);
 }
 
-void bench(encodec::encoder& enc, encodec::decoder& dec, unsigned int bps)
+void bench(encoder& enc, decoder& dec, bitrates bps)
 {
     float audio[24000];
     memset(audio, 0, sizeof(audio));
     
     // Warmup
-    auto packet = enc.encode(audio, encodec::get_encoded_nquantizers(bps));
-    auto audio2 = dec.decode(packet, encodec::get_encoded_nquantizers(bps));
+    auto packet = enc.encode(audio, get_encodec_nquantizers(RATE_24KHZ, bps));
+    auto audio2 = dec.decode(packet, get_encodec_nquantizers(RATE_24KHZ, bps));
 
     const int ntests = 100;
     const auto s0 = high_resolution_clock::now();
     for (size_t i{0} ; i < ntests ; ++i)
-        packet = enc.encode(audio, encodec::get_encoded_nquantizers(bps));
+        packet = enc.encode(audio, get_encodec_nquantizers(RATE_24KHZ, bps));
     const auto s1 = high_resolution_clock::now();
     printf("Encoding rate %f encoded %zu samples into %zu bits\n", (std::size(audio)*ntests)/((s1-s0).count()*1e-9), std::size(audio), packet.size()*8);
 
     const auto s2 = high_resolution_clock::now();
     for (size_t i{0} ; i < ntests ; ++i)
-        audio2 = dec.decode(packet, encodec::get_encoded_nquantizers(bps));
+        audio2 = dec.decode(packet, get_encodec_nquantizers(RATE_24KHZ, bps));
     const auto s3 = high_resolution_clock::now();
     printf("Decoding rate %f %zu bits into decoded %zu samples\n", (std::size(audio2)*ntests)/((s3-s2).count()*1e-9), packet.size()*8, audio2.size());
 }
@@ -86,18 +87,18 @@ void bench(encodec::encoder& enc, encodec::decoder& dec, unsigned int bps)
 
 int main()
 {
-    encodec::encoder enc(encodec::get_encoder24_weights(), encodec::get_rvq24_weights());
-    encodec::decoder dec(encodec::get_decoder24_weights(), encodec::get_rvq24_weights());
+    encoder enc(get_encoder24_weights(), get_rvq24_weights());
+    decoder dec(get_decoder24_weights(), get_rvq24_weights());
 
     printf("Testing on birch canoe...\n");
-    test_birch_canoe(enc, dec, 24000);
-    test_birch_canoe(enc, dec, 12000);
-    test_birch_canoe(enc, dec, 6000);
-    test_birch_canoe(enc, dec, 3000);
+    test_birch_canoe(enc, dec, BPS_24000);
+    test_birch_canoe(enc, dec, BPS_12000);
+    test_birch_canoe(enc, dec, BPS_6000);
+    test_birch_canoe(enc, dec, BPS_3000);
     printf("Testing on birch canoe... Done\n");
     
     printf("Bench...\n");
-    bench(enc, dec, 24000);
+    bench(enc, dec, BPS_24000);
     printf("Bench... Done\n");
 
     return 0;

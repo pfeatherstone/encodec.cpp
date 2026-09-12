@@ -33,9 +33,9 @@ namespace encodec
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
     
-    constexpr double    SAMPLE_RATE     = 24000;
+    constexpr unsigned  NLEVELS_24      = 32;
+    constexpr unsigned  NLEVELS_48      = 16;
     constexpr unsigned  STRIDE          = 320;
-    constexpr unsigned  NLEVELS         = 32;
     constexpr unsigned  CODEBOOK_SIZE   = 1024;
     constexpr unsigned  CODEBOOK_DIM    = 128;
 
@@ -107,15 +107,23 @@ namespace encodec
 
 //----------------------------------------------------------------------------------------------------------------
 
-    unsigned int get_encodec_bps(unsigned int nlevels)      { return (SAMPLE_RATE / STRIDE) * nlevels * 10; }
-    unsigned int get_encoded_nquantizers(unsigned int bps)  { return (bps / 10) * STRIDE / SAMPLE_RATE; }   
-    
+    bitrates get_encodec_bps(sample_rates rate, unsigned int nlevels)
+    {
+        return static_cast<bitrates>((static_cast<unsigned int>(rate) / STRIDE) * nlevels * 10); 
+    }
+
+    unsigned int get_encodec_nquantizers(sample_rates rate, bitrates bps)
+    {
+        return static_cast<unsigned int>(bps) * STRIDE / (static_cast<unsigned int>(rate) * 10);
+    }
+
 //----------------------------------------------------------------------------------------------------------------
 
     struct rvq
     {
+        size_t                  nlevels{};
         std::vector<float>      weights;
-        VectorXf                Cnorms[NLEVELS];
+        MatrixXf                Cnorms;
         MatrixXf                dists;
         std::vector<uint16_t>   codes;
         std::vector<uint8_t>    codes_packed;
@@ -123,39 +131,47 @@ namespace encodec
 
         auto codebook(size_t l) const
         {
+            assert(l < nlevels);
             return Eigen::Map<const MatrixXf>(&weights[l*CODEBOOK_SIZE*CODEBOOK_DIM], CODEBOOK_SIZE, CODEBOOK_DIM);
         }
         
         rvq(std::span<const float> weights_) : weights(weights_.begin(), weights_.end())
         {
-            if (weights.size() != (NLEVELS*CODEBOOK_SIZE*CODEBOOK_DIM)) 
-                throw std::runtime_error("Bad rvq weights");
+            constexpr size_t LEVEL_SIZE = CODEBOOK_SIZE * CODEBOOK_DIM;
+            nlevels = weights.size() / LEVEL_SIZE;
+            if (weights.size() % LEVEL_SIZE != 0) throw std::runtime_error("Bad rvq weights");
+            if (!(nlevels == 32 || nlevels == 16)) throw std::runtime_error("Bad rvq weights");
+        
+            Cnorms.resize(nlevels, CODEBOOK_SIZE);
 
-            for (size_t l{0} ; l < NLEVELS ; ++l)
-                Cnorms[l] = codebook(l).rowwise().squaredNorm();
+            for (size_t l{0}; l < nlevels; ++l)
+                Cnorms.row(l) = codebook(l).rowwise().squaredNorm().transpose();
         }
 
-        std::span<const uint8_t> encode(std::span<float> feats, size_t nlevels)
+        std::span<const uint8_t> encode(std::span<float> features, size_t num_quantizers)
         {
+            assert(num_quantizers >= 1);
+            assert(num_quantizers <= nlevels);
+
             // RVQ Encode
-            const size_t T = feats.size() / CODEBOOK_DIM;
-            codes.resize(T*nlevels);
+            const size_t T = features.size() / CODEBOOK_DIM;
+            codes.resize(T*num_quantizers);
             codes_packed.resize((codes.size()*10 + 7) / 8);
 
-            auto X = Eigen::Map<MatrixXf>(&feats[0], T, CODEBOOK_DIM);
+            auto X = Eigen::Map<MatrixXf>(&features[0], T, CODEBOOK_DIM);
 
-            for (size_t l{0} ; l < nlevels ; ++l)
+            for (size_t l{0} ; l < num_quantizers ; ++l)
             {
                 auto C = codebook(l);
                 dists.noalias() = -2.0f * X * C.transpose();
-                dists.rowwise() += Cnorms[l].transpose();
+                dists.rowwise() += Cnorms.row(l);
                 
                 for (size_t t{0}; t < T; ++t)
                 {
                     Eigen::Index best_idx{0};
                     dists.row(t).minCoeff(&best_idx);
                     X.row(t) -= C.row(best_idx);
-                    codes[t*nlevels+l] = best_idx;                    
+                    codes[t*num_quantizers+l] = best_idx;                    
                 }
             }   
 
@@ -164,21 +180,24 @@ namespace encodec
             return codes_packed;
         }
 
-        std::span<float> decode(std::span<const uint8_t> codes_packed, size_t nlevels)
+        std::span<float> decode(std::span<const uint8_t> codes_packed, size_t num_quantizers)
         {
+            assert(num_quantizers >= 1);
+            assert(num_quantizers <= nlevels);
+
             // Unpack bits
             const size_t ncodes = (codes_packed.size()*8)/10;
-            const size_t T      = ncodes/nlevels;
+            const size_t T      = ncodes/num_quantizers;
             codes.resize(ncodes);
             feats.resize(T*CODEBOOK_DIM);
             unpack_bits(codes_packed, codes);
 
-            auto X = Eigen::Map<const MatrixXu16>(&codes[0], T, nlevels);
+            auto X = Eigen::Map<const MatrixXu16>(&codes[0], T, num_quantizers);
             auto Y = Eigen::Map<MatrixXf>(&feats[0], T, CODEBOOK_DIM);
             Y.setZero();
 
             // RVQ decode
-            for (size_t l{0}; l < nlevels; ++l)
+            for (size_t l{0}; l < num_quantizers; ++l)
             {
                 auto C = codebook(l);
                 for (size_t t{0}; t < T; ++t)
@@ -286,7 +305,7 @@ namespace encodec
         size_t   nout{};
         size_t   k{};
         size_t   s{};
-        size_t   pad() {return (k - 1) + 1 - s;}
+        size_t   pad() {return k - s;}
         MatrixXf w;         // shape [nout,k*nin]
         VectorXf b;         // shape [nout]
         MatrixXf patches;   // shape [Tout, k*nin]
@@ -403,6 +422,53 @@ namespace encodec
             out.rowwise() += b.transpose();
 
             return std::span<float>{out.data(), Tout*nout};
+        }
+    };
+
+//----------------------------------------------------------------------------------------------------------------
+
+    struct time_group_norm
+    {
+        VectorXf w; // [C,1]
+        VectorXf b; // [C,1]
+        float    eps{};
+
+        time_group_norm(size_t nin_, float eps_ = 1e-5f)
+        : w(nin_),
+          b(nin_),
+          eps{eps_}
+        {
+        }
+
+        auto load_weights(std::span<const float> data) -> std::span<const float>
+        {
+            if (data.size() < size_t(w.size()+b.size())) throw std::runtime_error("Not enough data in groupnorm weights");
+            size_t off{0};
+            w = Eigen::Map<const VectorXf>(data.subspan(off, w.size()).data(), w.size()); off += w.size();
+            b = Eigen::Map<const VectorXf>(data.subspan(off, b.size()).data(), b.size()); off += b.size();
+            return data.subspan(off);
+        }
+
+        size_t nin() const noexcept { return b.size(); }
+
+        std::span<float> operator()(std::span<float> input)
+        {
+            const size_t T = input.size() / nin();
+            auto X = Eigen::Map<MatrixXf>(input.data(), T, nin()); // [T,C]
+
+            // GroupNorm(1, C): statistics over all C*T values.
+            const float mean = X.mean();
+            const float var  = (X.array() - mean).square().mean();
+            const float inv  = 1.0f / std::sqrt(var + eps);
+
+            // Normalize.
+            X.array() = (X.array() - mean) * inv;
+
+            // Per-channel affine transform.
+            X.array().rowwise() *= w.transpose().array(); 
+            X.rowwise()         += b.transpose();
+
+            return input;
         }
     };
 

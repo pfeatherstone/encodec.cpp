@@ -9,14 +9,35 @@ namespace encodec
 
 //----------------------------------------------------------------------------------------------------------------
 
-    unsigned int get_encodec_bps(unsigned int num_quantizers);
-    unsigned int get_encoded_nquantizers(unsigned int bps);
+    enum sample_rates : unsigned int
+    {
+        RATE_24KHZ = 24000,
+        RATE_48KHZ = 48000
+    };
+
+    enum bitrates : unsigned int
+    {
+        BPS_1500  = 1500,
+        BPS_3000  = 3000,
+        BPS_6000  = 6000,
+        BPS_12000 = 12000,
+        BPS_24000 = 24000
+    };
+
+    bitrates     get_encodec_bps        (sample_rates rate, unsigned int num_quantizers);
+    unsigned int get_encodec_nquantizers(sample_rates rate, bitrates bps);
 
 //----------------------------------------------------------------------------------------------------------------
 
     std::span<const float> get_encoder24_weights();
     std::span<const float> get_decoder24_weights();
     std::span<const float> get_rvq24_weights();
+
+//----------------------------------------------------------------------------------------------------------------
+
+    std::span<const float> get_encoder48_weights();
+    std::span<const float> get_decoder48_weights();
+    std::span<const float> get_rvq48_weights();
 
 //----------------------------------------------------------------------------------------------------------------
 

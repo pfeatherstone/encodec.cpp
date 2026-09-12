@@ -8,6 +8,7 @@
 using namespace std::chrono_literals;
 using std::begin;
 using std::end;
+using namespace encodec;
 
 static std::mt19937_64 RAND;
 
@@ -23,9 +24,9 @@ TEST_SUITE("[ENCODEC]")
     TEST_CASE("encodec24khz") 
     {
         // Encodec
-        encodec::encoder enc(encodec::get_encoder24_weights(), encodec::get_rvq24_weights());
-        encodec::decoder dec(encodec::get_decoder24_weights(), encodec::get_rvq24_weights());
-        constexpr size_t BPS[] = {24000, 12000, 6000, 3000};
+        encoder enc(get_encoder24_weights(), get_rvq24_weights());
+        decoder dec(get_decoder24_weights(), get_rvq24_weights());
+        constexpr bitrates BPS[] = {BPS_24000, BPS_12000, BPS_6000, BPS_3000};
     
         // Audio
         float audio[24000];
@@ -39,7 +40,7 @@ TEST_SUITE("[ENCODEC]")
 
         for (auto bps : BPS)
         {
-            const size_t num_quants = encodec::get_encoded_nquantizers(bps);
+            const size_t num_quants = get_encodec_nquantizers(RATE_24KHZ, bps);
 
             // Warmup
             auto packet = enc.encode(audio, num_quants);

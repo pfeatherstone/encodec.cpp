@@ -258,17 +258,17 @@ def test_against_official(enc, dec, rvq:RVQ, net1:EncodecModel):
     out1 = net1.decoder(x.permute(0,2,1))
     torch.testing.assert_close(out0, out1)
 
-    # # Test encoder + RVQ
-    # x    = torch.randn(1, inc, 24000)
-    # out0 = rvq.encode(enc(x))
-    # out1 = net1.encode(x, bandwidth=24.0)
-    # torch.testing.assert_close(out0, out1.audio_codes[0].permute(0,2,1))
+    # RVQ encode
+    x    = torch.randn(1, inc, 24000)
+    out0 = rvq.encode(enc(x))
+    out1 = net1.quantizer.encode(net1.encoder(x)).permute(1, 2, 0)
+    torch.testing.assert_close(out0, out1)
 
-    # # Test decoder + RVQ
-    # x    = out0
-    # out0 = dec(rvq.decode(x))
-    # out1 = net1.decode(out1.audio_codes, out1.audio_scales).audio_values
-    # torch.testing.assert_close(out0, out1, rtol=1e-2, atol=1e-4)
+    # RVQ decode
+    codes = out0
+    out0  = rvq.decode(codes)
+    out1  = net1.quantizer.decode(codes.permute(2, 0, 1)).permute(0, 2, 1)
+    torch.testing.assert_close(out0, out1)
 
 
 if __name__ == '__main__':
@@ -284,6 +284,6 @@ if __name__ == '__main__':
     print(f"dec1 size {count_parameters(net1.decoder)}")
     load_pretrained(enc, rvq, dec, net1)
     test_against_official(enc, dec, rvq, net1)
-    save_cpp(enc, "encoder48.cpp", "encoder48")
-    save_cpp(dec, "decoder48.cpp", "decoder48")
-    write_to_cpp_file(rvq.codebooks.numpy().ravel(), "rvq48.cpp", "rvq48")   
+    # save_cpp(enc, "encoder48.cpp", "encoder48")
+    # save_cpp(dec, "decoder48.cpp", "decoder48")
+    # write_to_cpp_file(rvq.codebooks.numpy().ravel(), "rvq48.cpp", "rvq48")   
