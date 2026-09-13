@@ -24,9 +24,6 @@ namespace encodec
         BPS_24000 = 24000
     };
 
-    bitrates     get_encodec_bps        (sample_rates rate, unsigned int num_quantizers);
-    unsigned int get_encodec_nquantizers(sample_rates rate, bitrates bps);
-
 //----------------------------------------------------------------------------------------------------------------
 
     std::span<const float> get_encoder24_weights();
@@ -48,12 +45,15 @@ namespace encodec
         std::unique_ptr<impl> state;
         
     public:
-        encoder(std::span<const float> encoder_weights, std::span<const float> rvq_weights);
+        encoder(sample_rates rate, std::span<const float> encoder_weights, std::span<const float> rvq_weights);
         ~encoder();
         encoder(encoder&& other);
         encoder& operator=(encoder&& other);
 
-        std::span<const uint8_t> encode(std::span<const float> audio, unsigned int num_quantizers);
+        std::span<float>            features(std::span<const float>    audio);
+        std::span<const uint16_t>   codes   (std::span<float>          feats, bitrates bps);
+        std::span<const uint8_t>    packet  (std::span<const uint16_t> codes);
+        std::span<const uint8_t>    encode  (std::span<const float>    audio, bitrates bps);
     };
 
 //----------------------------------------------------------------------------------------------------------------
@@ -65,12 +65,15 @@ namespace encodec
         std::unique_ptr<impl> state;
         
     public:
-        decoder(std::span<const float> decocer_weights, std::span<const float> rvq_weights);
+        decoder(sample_rates rate, std::span<const float> decoder_weights, std::span<const float> rvq_weights);
         ~decoder();
         decoder(decoder&& other);
         decoder& operator=(decoder&& other);
 
-        std::span<const float> decode(std::span<const uint8_t> packet, unsigned int num_quantizers);
+        std::span<const uint16_t> codes   (std::span<const uint8_t> packet);
+        std::span<const float>    features(std::span<const uint16_t> codes, bitrates bps);
+        std::span<const float>    audio   (std::span<const float> features);
+        std::span<const float>    decode  (std::span<const uint8_t> packet, bitrates bps);
     };
 
 //----------------------------------------------------------------------------------------------------------------

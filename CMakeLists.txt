@@ -48,9 +48,15 @@ endfunction()
 add_weight_target(encodec_encoder24 src/lib/weights/encoder24.cpp.xz)
 add_weight_target(encodec_decoder24 src/lib/weights/decoder24.cpp.xz)
 add_weight_target(encodec_rvq24     src/lib/weights/rvq24.cpp.xz)
+add_weight_target(encodec_encoder48 src/lib/weights/encoder48.cpp.xz)
+add_weight_target(encodec_decoder48 src/lib/weights/decoder48.cpp.xz)
+add_weight_target(encodec_rvq48     src/lib/weights/rvq48.cpp.xz)
 add_library(encodec::encoder24 ALIAS encodec_encoder24)
 add_library(encodec::decoder24 ALIAS encodec_decoder24)
 add_library(encodec::rvq24     ALIAS encodec_rvq24)
+add_library(encodec::encoder48 ALIAS encodec_encoder48)
+add_library(encodec::decoder48 ALIAS encodec_decoder48)
+add_library(encodec::rvq48     ALIAS encodec_rvq48)
 
 # Lib
 add_library(encodec src/lib/encodec.cpp)
@@ -86,9 +92,14 @@ if (ENCODEC_BUILD_TESTS)
     encodec::encodec 
     encodec::encoder24
     encodec::decoder24
-    encodec::rvq24)
+    encodec::rvq24
+    encodec::encoder48
+    encodec::decoder48
+    encodec::rvq48)
 
   target_compile_options(encodec_tests PRIVATE $<${IS_NOT_MSVC}:-Wall;-Wextra;-Wpedantic;-Werror>)
+  get_filename_component(ENCODEC_DATA_PATH ${CMAKE_CURRENT_SOURCE_DIR}/src/tests/data/ REALPATH)
+  target_compile_definitions(encodec_tests PRIVATE ENCODEC_DATA_PATH="${ENCODEC_DATA_PATH}")
 endif()
 
 # Bench

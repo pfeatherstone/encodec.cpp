@@ -24,8 +24,8 @@ TEST_SUITE("[ENCODEC]")
     TEST_CASE("encodec24khz") 
     {
         // Encodec
-        encoder enc(get_encoder24_weights(), get_rvq24_weights());
-        decoder dec(get_decoder24_weights(), get_rvq24_weights());
+        encoder enc(RATE_24KHZ, get_encoder24_weights(), get_rvq24_weights());
+        decoder dec(RATE_24KHZ, get_decoder24_weights(), get_rvq24_weights());
         constexpr bitrates BPS[] = {BPS_24000, BPS_12000, BPS_6000, BPS_3000};
     
         // Audio
@@ -40,21 +40,19 @@ TEST_SUITE("[ENCODEC]")
 
         for (auto bps : BPS)
         {
-            const size_t num_quants = get_encodec_nquantizers(RATE_24KHZ, bps);
-
             // Warmup
-            auto packet = enc.encode(audio, num_quants);
-            auto audio2 = dec.decode(packet, num_quants);
+            auto packet = enc.encode(audio, bps);
+            auto audio2 = dec.decode(packet, bps);
             packet_buf.assign(begin(packet), end(packet));
             (void)packet;
             (void)audio2;
 
-            bench.run(format("encode 24khz : bps ", bps, " quants ", num_quants), [&] {
-                enc.encode(audio, num_quants);
+            bench.run(format("encode 24khz : bps ", bps), [&] {
+                enc.encode(audio, bps);
             });
 
-            bench.run(format("decode 24khz : bps ", bps, " quants ", num_quants), [&] {
-                dec.decode(packet_buf, num_quants);
+            bench.run(format("decode 24khz : bps ", bps), [&] {
+                dec.decode(packet_buf, bps);
             });
         }
     }

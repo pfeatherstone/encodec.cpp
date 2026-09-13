@@ -271,9 +271,30 @@ def test_against_official(enc, dec, rvq:RVQ, net1:EncodecModel):
     torch.testing.assert_close(out0, out1)
 
 
+##########################################################################################################
+##########################################################################################################
+### Test data
+##########################################################################################################
+##########################################################################################################
+
+
+@torch.inference_mode()
+def generate_test_data(enc:nn.Module, dec:nn.Module, rvq:RVQ, is24:bool):
+    shapes      = [24000, 48000, 9999, 33333]
+    nin         = 1 if is24 else 2
+    rate        = "24khz" if is24 else "48khz"
+    for shape in shapes:
+        x       = torch.randn(1,nin,shape)
+        out0    = enc(x)
+        out1    = dec(out0)
+        x.permute(0,2,1).contiguous().numpy().tofile(f"encodec_{rate}_orig_{shape}.dat")
+        out0.numpy().tofile(f"encodec_{rate}_feats_{shape}.dat")
+        out1.permute(0,2,1).contiguous().numpy().tofile(f"encodec_{rate}_decod_{shape}.dat")
+
+
 if __name__ == '__main__':
     print("Starting")
-    is24 = False
+    is24 = True
     enc  = EncodecEncoder(is24=is24).eval()
     dec  = EncodecDecoder(is24=is24).eval()
     rvq  = RVQ(128, 1024, 32 if is24 else 16)
@@ -286,4 +307,5 @@ if __name__ == '__main__':
     test_against_official(enc, dec, rvq, net1)
     # save_cpp(enc, "encoder48.cpp", "encoder48")
     # save_cpp(dec, "decoder48.cpp", "decoder48")
-    # write_to_cpp_file(rvq.codebooks.numpy().ravel(), "rvq48.cpp", "rvq48")   
+    # write_to_cpp_file(rvq.codebooks.numpy().ravel(), "rvq48.cpp", "rvq48") 
+    # generate_test_data(enc, dec, rvq, is24)
