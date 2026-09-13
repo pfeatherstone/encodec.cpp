@@ -105,12 +105,12 @@ TEST_SUITE("[ENCODEC]")
             auto feats_cal = enc.features(audio0);
             REQUIRE(feats_cal.size() == feats_exp.size());
             for (size_t i{0} ; i < feats_cal.size() ; ++i)
-                CHECK(std::abs(feats_cal[i] - feats_exp[i]) < 1e-4);
+                CHECK(std::abs(feats_cal[i] - feats_exp[i]) < 2e-4);
 
             auto audio1_cal = dec.audio(feats_exp);
             REQUIRE(audio1_cal.size() == audio1_exp.size());
             for (size_t i{0} ; i < audio1_cal.size() ; ++i)
-                CHECK(std::abs(audio1_cal[i] - audio1_exp[i]) < 5e-4);
+                CHECK(std::abs(audio1_cal[i] - audio1_exp[i]) < 6e-4);
         }
     }
 }

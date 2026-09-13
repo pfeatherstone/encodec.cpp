@@ -25,12 +25,12 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(encodec)
 
-target_link_libraries(my_encoder_only_app PRIVATE 
+target_link_libraries(my_24khz_encoder_only_app PRIVATE 
   encodec::encodec 
   encodec::encoder24
   encodec::rvq24)
 
-target_link_libraries(my_decoder_only_app PRIVATE 
+target_link_libraries(my_24khz_decoder_only_app PRIVATE 
   encodec::encodec 
   encodec::decoder24
   encodec::rvq24)
@@ -41,27 +41,27 @@ Using CPM:
 ```cmake
 CPMAddPackage("gh:pfeatherstone/encodec.cpp#<tag>")
 
-target_link_libraries(my_app PRIVATE 
+target_link_libraries(my_48khz_app PRIVATE 
   encodec::encodec 
-  encodec::encoder24
-  encodec::decoder24
-  encodec::rvq24)
+  encodec::encoder48
+  encodec::decoder48
+  encodec::rvq48)
 ```
 
-The `encodec::encoder24`, `encodec::decoder24` and `encodec::rvq24` targets are compiled weight targets.
+The `encodec::encoder<rate>`, `encodec::decoder<rate>` and `encodec::rvq<rate>` targets are compiled weight targets.
 
 ## API
 
 ```cpp
 #include <encodec.h>
 
-encodec::encoder enc(encodec::get_encoder24_weights(), encodec::get_rvq24_weights());
-encodec::decoder dec(encodec::get_decoder24_weights(), encodec::get_rvq24_weights());
+encodec::encoder enc(encodec::RATE_24KHZ, encodec::get_encoder24_weights(), encodec::get_rvq24_weights());
+encodec::decoder dec(encodec::RATE_24KHZ, encodec::get_decoder24_weights(), encodec::get_rvq24_weights());
 
 float audio[24000];
 size_t bps = 24000; // 12000, 6000 or 3000
-std::span<const uint8_t> packet = enc.encode(audio,  encodec::get_encoded_nquantizers(bps));
-std::span<const float>   audio2 = dec.decode(packet, encodec::get_encoded_nquantizers(bps));
+std::span<const uint8_t> packet = enc.encode(audio, bps);
+std::span<const float>   audio2 = dec.decode(packet, bps);
 ```
 
 ## Notes
