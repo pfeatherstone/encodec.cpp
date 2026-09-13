@@ -41,8 +41,11 @@ TEST_SUITE("[ENCODEC]")
         for (auto bps : BPS)
         {
             // Warmup
-            auto [scale, packet] = enc.encode(audio, bps);
-            auto audio2          = dec.decode(packet, scale, bps);
+            auto result = enc.encode(audio, bps);
+            auto scale  = result.first;
+            auto packet = result.second;
+            auto audio2 = dec.decode(packet, scale, bps);
+
             packet_buf.assign(begin(packet), end(packet));
             (void)packet;
             (void)audio2;
