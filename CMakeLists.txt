@@ -71,7 +71,7 @@ target_compile_options(encodec
   PRIVATE $<${IS_NOT_MSVC}:-Wall;-Wextra;-Wpedantic;-Werror>
   PRIVATE $<$<BOOL:${AVX_FOUND}>:${AVX_CFLAGS}>
   PRIVATE $<$<BOOL:${NEON_FOUND}>:${NEON_CFLAGS}>
-  PRIVATE $<$<AND:${IS_NOT_MSVC},$<CONFIG:Release>>:-ffast-math>
+  PRIVATE $<$<AND:${IS_NOT_MSVC},$<CONFIG:Release>>:-ffast-math;-fno-finite-math-only>
   PRIVATE $<$<AND:${IS_MSVC},$<CONFIG:Release>>:/fp:fast>)
   
 target_link_libraries(encodec PRIVATE Eigen3::Eigen)
