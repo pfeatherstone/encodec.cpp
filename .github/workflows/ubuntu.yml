@@ -17,6 +17,7 @@ jobs:
   build-test:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-22.04
@@ -83,7 +84,7 @@ jobs:
         uses: dorny/test-reporter@v3
         if: ${{ always() }}
         with:
-          name: Unit Tests (${{ matrix.os }})
+          name: Unit Tests (${{ matrix.name }})
           path: build/test-results/encodec-tests-${{ matrix.name }}.xml
           reporter: java-junit
           fail-on-error: "false"
