@@ -124,5 +124,8 @@ if (ENCODEC_BUILD_EXAMPLES)
     encodec::encodec 
     encodec::encoder24
     encodec::decoder24
-    encodec::rvq24)
+    encodec::rvq24
+    encodec::encoder48
+    encodec::decoder48
+    encodec::rvq48)
 endif()

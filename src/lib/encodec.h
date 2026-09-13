@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <span>
 #include <memory>
+#include <utility>
 
 namespace encodec
 {
@@ -50,10 +51,12 @@ namespace encodec
         encoder(encoder&& other);
         encoder& operator=(encoder&& other);
 
-        std::span<float>            features(std::span<const float>    audio);
-        std::span<const uint16_t>   codes   (std::span<float>          feats, bitrates bps);
-        std::span<const uint8_t>    packet  (std::span<const uint16_t> codes);
-        std::span<const uint8_t>    encode  (std::span<const float>    audio, bitrates bps);
+        sample_rates                                get_rate() const noexcept;
+        std::pair<float, std::span<const float>>    norm    (std::span<const float>    audio);
+        std::span<float>                            features(std::span<const float>    input);
+        std::span<const uint16_t>                   codes   (std::span<float>          feats, bitrates bps);
+        std::span<const uint8_t>                    packet  (std::span<const uint16_t> codes);
+        std::pair<float, std::span<const uint8_t>>  encode  (std::span<const float>    audio, bitrates bps);
     };
 
 //----------------------------------------------------------------------------------------------------------------
@@ -73,7 +76,8 @@ namespace encodec
         std::span<const uint16_t> codes   (std::span<const uint8_t> packet);
         std::span<const float>    features(std::span<const uint16_t> codes, bitrates bps);
         std::span<const float>    audio   (std::span<const float> features);
-        std::span<const float>    decode  (std::span<const uint8_t> packet, bitrates bps);
+        std::span<const float>    norm    (float scale, std::span<const float> input);
+        std::span<const float>    decode  (std::span<const uint8_t> packet, float scale, bitrates bps);
     };
 
 //----------------------------------------------------------------------------------------------------------------

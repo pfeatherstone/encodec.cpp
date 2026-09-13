@@ -102,12 +102,12 @@ TEST_SUITE("[ENCODEC]")
             const std::vector<float> feats_exp    = load_file<float>(file_feats);
             const std::vector<float> audio1_exp   = load_file<float>(file_decod);
 
-            auto feats_cal = enc.features(audio0);
+            const auto feats_cal = enc.features(audio0);
             REQUIRE(feats_cal.size() == feats_exp.size());
             for (size_t i{0} ; i < feats_cal.size() ; ++i)
                 CHECK(std::abs(feats_cal[i] - feats_exp[i]) < 2e-4);
 
-            auto audio1_cal = dec.audio(feats_exp);
+            const auto audio1_cal = dec.audio(feats_exp);
             REQUIRE(audio1_cal.size() == audio1_exp.size());
             for (size_t i{0} ; i < audio1_cal.size() ; ++i)
                 CHECK(std::abs(audio1_cal[i] - audio1_exp[i]) < 7e-4);

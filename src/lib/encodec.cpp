@@ -1,7 +1,10 @@
 #include <cassert>
-#include <vector>
+#include <cmath>
+#include <algorithm>
 #include <array>
+#include <vector>
 #include <optional>
+#include <stdexcept>
 #include <Eigen/Dense>
 #include "encodec.h"
 
@@ -29,17 +32,10 @@ namespace encodec
             c[i] = a[i] + b[i];
     }
 
-    float normalize(std::span<float> input, size_t nchannels, float eps=1e-8f)
+    constexpr void mult(std::span<const float> a, float g, std::span<float> c)
     {
-        assert(nchannels > 0);
-        assert(input.size() % nchannels == 0);
-
-        const size_t T      = input.size() / nchannels;
-        auto X              = Eigen::Map<MatrixXf>(input.data(), T, nchannels); // [T,C]
-        const float scale   = std::sqrt(X.rowwise().mean().squaredNorm() / T) + eps;
-        X.array() /= scale;
-
-        return scale;
+        for (size_t i{0} ; i < a.size() ; ++i)
+            c[i] = g*a[i];
     }
 
 //----------------------------------------------------------------------------------------------------------------
@@ -303,6 +299,41 @@ namespace encodec
 //----------------------------------------------------------------------------------------------------------------
 // NN
 //----------------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------------------------------------------------
+
+    struct normalize
+    {
+        size_t              nchannels{};
+        float               eps{};
+        std::vector<float>  out;
+
+        normalize(size_t nchannels_, float eps_=1e-8f) : nchannels{nchannels_},  eps{eps_} {}
+
+        std::pair<float, std::span<const float>> forward(std::span<const float> input)
+        {
+            assert(nchannels > 0);
+            assert(input.size() % nchannels == 0);
+
+            const size_t T = input.size() / nchannels;
+            out.resize(input.size());
+
+            auto X = Eigen::Map<const MatrixXf>(input.data(), T, nchannels);
+            auto Y = Eigen::Map<MatrixXf>(out.data(), T, nchannels);
+
+            const float scale = std::sqrt(X.rowwise().mean().squaredNorm() / T) + eps;
+            Y.array() = X.array() / scale;
+
+            return {scale, out};
+        }
+
+        std::span<const float> backward(float scale, std::span<const float> input)
+        {
+            out.resize(input.size());
+            mult(input, scale, out);
+            return out;
+        }
+    };
+
 //----------------------------------------------------------------------------------------------------------------
 
     struct time_group_norm
@@ -796,6 +827,7 @@ namespace encodec
         elu_layer     a6;
         conv          b6;
         rvq           rvq_;
+        normalize     normalizer;
         bool causal() const noexcept {return rate==RATE_24KHZ;}
         bool norm()   const noexcept {return rate==RATE_48KHZ;}
         size_t nc()   const noexcept {return rate==RATE_24KHZ ? 1 : 2;}
@@ -810,7 +842,8 @@ namespace encodec
           b5(512),
           a6(true),
           b6(512, 128, 7, 1, causal(), norm()),
-          rvq_(rvq_weights)
+          rvq_(rvq_weights),
+          normalizer(nc())
         {
             weights = b0.load_weights(weights);
             weights = b1.load_weights(weights);
@@ -822,9 +855,15 @@ namespace encodec
             if (!weights.empty()) throw std::runtime_error("Failed to load encoder weights");
         }
 
-        std::span<float> features(std::span<const float> audio)
+        std::pair<float, std::span<const float>> norm(std::span<const float> audio)
         {
-            auto x = b0(audio);
+            if (norm()) return normalizer.forward(audio);
+            else        return {1.0f, audio};
+        }
+
+        std::span<float> features(std::span<const float> input)
+        {
+            auto x = b0(input);
             x      = b1(x);
             x      = b2(x);
             x      = b3(x);
@@ -849,6 +888,7 @@ namespace encodec
         elu_layer     a6;
         conv          b6;
         rvq           rvq_;
+        normalize     normalizer;
         bool causal() const noexcept {return rate==RATE_24KHZ;}
         bool norm()   const noexcept {return rate==RATE_48KHZ;}
         size_t nc()   const noexcept {return rate==RATE_24KHZ ? 1 : 2;}
@@ -863,7 +903,8 @@ namespace encodec
           b5( 64,  32, 2, causal(), norm()),
           a6(true),
           b6( 32,  nc(), 7, 1, causal(), norm()),
-          rvq_(rvq_weights)
+          rvq_(rvq_weights),
+          normalizer(nc())
         {
             weights = b0.load_weights(weights);
             weights = b1.load_weights(weights);
@@ -886,6 +927,12 @@ namespace encodec
             x       = b6(a6(x));
             return x; 
         }
+        
+        std::span<const float> norm(float scale, std::span<const float> input)
+        {
+            if (norm()) return normalizer.backward(scale, input);
+            else        return input;
+        }
     };
     
 //----------------------------------------------------------------------------------------------------------------
@@ -895,9 +942,19 @@ namespace encodec
     encoder::encoder(encoder&& other)            = default;
     encoder& encoder::operator=(encoder&& other) = default;
 
-    std::span<float> encoder::features(std::span<const float> audio)
+    sample_rates encoder::get_rate() const noexcept
     {
-        return state->features(audio);
+        return state->rate;
+    }
+
+    std::pair<float, std::span<const float>> encoder::norm(std::span<const float> audio)
+    {
+        return state->norm(audio);
+    }
+    
+    std::span<float> encoder::features(std::span<const float> input)
+    {
+        return state->features(input);
     }
 
     std::span<const uint16_t> encoder::codes(std::span<float> features, bitrates bps)
@@ -910,9 +967,10 @@ namespace encodec
         return state->rvq_.pack(codes);
     }
 
-    std::span<const uint8_t> encoder::encode(std::span<const float> audio, bitrates bps)
+    std::pair<float, std::span<const uint8_t>> encoder::encode(std::span<const float> audio, bitrates bps)
     {
-        return packet(codes(features(audio), bps));
+        const auto [scale, input] = norm(audio);
+        return {scale, packet(codes(features(input), bps))};
     }
 
 //----------------------------------------------------------------------------------------------------------------
@@ -937,9 +995,14 @@ namespace encodec
         return state->audio(features);
     }
 
-    std::span<const float> decoder::decode(std::span<const uint8_t> packet, bitrates bps)
+    std::span<const float> decoder::norm(float scale, std::span<const float> input)
     {
-        return audio(features(codes(packet), bps));
+        return state->norm(scale, input);
+    }
+
+    std::span<const float> decoder::decode(std::span<const uint8_t> packet, float scale, bitrates bps)
+    {
+        return norm(scale, audio(features(codes(packet), bps)));
     }
 
 //----------------------------------------------------------------------------------------------------------------

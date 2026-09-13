@@ -41,8 +41,8 @@ TEST_SUITE("[ENCODEC]")
         for (auto bps : BPS)
         {
             // Warmup
-            auto packet = enc.encode(audio, bps);
-            auto audio2 = dec.decode(packet, bps);
+            auto [scale, packet] = enc.encode(audio, bps);
+            auto audio2          = dec.decode(packet, scale, bps);
             packet_buf.assign(begin(packet), end(packet));
             (void)packet;
             (void)audio2;
@@ -52,7 +52,7 @@ TEST_SUITE("[ENCODEC]")
             });
 
             bench.run(format("decode 24khz : bps ", bps), [&] {
-                dec.decode(packet_buf, bps);
+                dec.decode(packet_buf, scale, bps);
             });
         }
     }
