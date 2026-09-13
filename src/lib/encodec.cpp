@@ -29,6 +29,19 @@ namespace encodec
             c[i] = a[i] + b[i];
     }
 
+    float normalize(std::span<float> input, size_t nchannels, float eps=1e-8f)
+    {
+        assert(nchannels > 0);
+        assert(input.size() % nchannels == 0);
+
+        const size_t T      = input.size() / nchannels;
+        auto X              = Eigen::Map<MatrixXf>(input.data(), T, nchannels); // [T,C]
+        const float scale   = std::sqrt(X.rowwise().mean().squaredNorm() / T) + eps;
+        X.array() /= scale;
+
+        return scale;
+    }
+
 //----------------------------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------------------------
 // CONSTANTS

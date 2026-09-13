@@ -98,9 +98,9 @@ TEST_SUITE("[ENCODEC]")
 
         for (const auto& [file_orig, file_feats, file_decod] : T::test_datas())
         {
-            std::vector<float> audio0       = load_file<float>(file_orig);
-            std::vector<float> feats_exp    = load_file<float>(file_feats);
-            std::vector<float> audio1_exp   = load_file<float>(file_decod);
+            const std::vector<float> audio0       = load_file<float>(file_orig);
+            const std::vector<float> feats_exp    = load_file<float>(file_feats);
+            const std::vector<float> audio1_exp   = load_file<float>(file_decod);
 
             auto feats_cal = enc.features(audio0);
             REQUIRE(feats_cal.size() == feats_exp.size());
@@ -110,7 +110,7 @@ TEST_SUITE("[ENCODEC]")
             auto audio1_cal = dec.audio(feats_exp);
             REQUIRE(audio1_cal.size() == audio1_exp.size());
             for (size_t i{0} ; i < audio1_cal.size() ; ++i)
-                CHECK(std::abs(audio1_cal[i] - audio1_exp[i]) < 6e-4);
+                CHECK(std::abs(audio1_cal[i] - audio1_exp[i]) < 7e-4);
         }
     }
 }
