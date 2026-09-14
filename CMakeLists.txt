@@ -6,6 +6,7 @@ set(IS_GCC      "$<CXX_COMPILER_ID:GNU>")
 set(IS_CLANG    "$<CXX_COMPILER_ID:Clang>")
 set(IS_MSVC     "$<CXX_COMPILER_ID:MSVC>")
 set(IS_NOT_MSVC "$<NOT:${IS_MSVC}>")
+set(IS_X86      "$<IN_LIST:$<LOWER_CASE:${CMAKE_SYSTEM_PROCESSOR}>,x86_64;amd64;i386;i486;i586;i686>")
 
 # Dependencies
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -82,23 +83,28 @@ if (ENCODEC_ENABLE_SANITIZERS)
   target_link_options(encodec PUBLIC $<$<OR:${IS_GCC},${IS_CLANG}>:-fsanitize=address,undefined>)
 endif()
 
+add_library(encodec24 INTERFACE)
+target_link_libraries(encodec24 INTERFACE encodec encodec_encoder24 encodec_decoder24 encodec_rvq24)
+add_library(encodec::encodec24 ALIAS encodec24)
+
+add_library(encodec48 INTERFACE)
+target_link_libraries(encodec48 INTERFACE encodec encodec_encoder48 encodec_decoder48 encodec_rvq48)
+add_library(encodec::encodec48 ALIAS encodec48)
+
+add_library(encodec_all INTERFACE)
+target_link_libraries(encodec_all INTERFACE encodec24 encodec48)
+add_library(encodec::encodec_all ALIAS encodec_all)
+
 # Test
+get_filename_component(ENCODEC_DATA_PATH ${CMAKE_CURRENT_SOURCE_DIR}/src/tests/data/ REALPATH)
+
 if (ENCODEC_BUILD_TESTS)
   add_executable(encodec_tests 
     src/tests/doctest.cpp
     src/tests/encodec.cpp)
 
-  target_link_libraries(encodec_tests PRIVATE
-    encodec::encodec 
-    encodec::encoder24
-    encodec::decoder24
-    encodec::rvq24
-    encodec::encoder48
-    encodec::decoder48
-    encodec::rvq48)
-
+  target_link_libraries(encodec_tests PRIVATE encodec::encodec_all)
   target_compile_options(encodec_tests PRIVATE $<${IS_NOT_MSVC}:-Wall;-Wextra;-Wpedantic;-Werror>)
-  get_filename_component(ENCODEC_DATA_PATH ${CMAKE_CURRENT_SOURCE_DIR}/src/tests/data/ REALPATH)
   target_compile_definitions(encodec_tests PRIVATE ENCODEC_DATA_PATH="${ENCODEC_DATA_PATH}")
 endif()
 
@@ -108,24 +114,15 @@ if (ENCODEC_BUILD_BENCH)
     src/bench/main.cpp
     src/bench/encodec.cpp)
 
-  target_link_libraries(encodec_bench PRIVATE
-    encodec::encodec 
-    encodec::encoder24
-    encodec::decoder24
-    encodec::rvq24)
-
+  target_link_libraries(encodec_bench PRIVATE encodec::encodec_all)
   target_compile_options(encodec_bench PRIVATE $<${IS_NOT_MSVC}:-Wall;-Wextra;-Wpedantic;-Werror>)
+  target_compile_options(encodec_bench PRIVATE $<$<AND:${IS_X86},${IS_NOT_MSVC}>:-mdaz-ftz>)
+  target_link_options(encodec_bench PRIVATE $<$<AND:${IS_X86},${IS_NOT_MSVC}>:-mdaz-ftz>)
+  target_compile_definitions(encodec_bench PRIVATE ENCODEC_DATA_PATH="${ENCODEC_DATA_PATH}")
 endif()
 
 # Example
 if (ENCODEC_BUILD_EXAMPLES)
   add_executable(encodec_example src/examples/main.cpp)
-  target_link_libraries(encodec_example PRIVATE 
-    encodec::encodec 
-    encodec::encoder24
-    encodec::decoder24
-    encodec::rvq24
-    encodec::encoder48
-    encodec::decoder48
-    encodec::rvq48)
+  target_link_libraries(encodec_example PRIVATE encodec::encodec_all)
 endif()

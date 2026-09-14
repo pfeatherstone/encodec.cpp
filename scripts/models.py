@@ -7,6 +7,7 @@ from   torch.nn.utils.parametrize import remove_parametrizations
 from   einops import rearrange
 from   einops.layers.torch import Rearrange
 from   transformers.models.encodec.modeling_encodec import EncodecModel
+from   datasets import load_dataset, Audio
 
 
 ##########################################################################################################
@@ -278,23 +279,41 @@ def test_against_official(enc, dec, rvq:RVQ, net1:EncodecModel):
 ##########################################################################################################
 
 
+def librispeech_stream(sample_rate:int, nchannels:int, seed:int):
+    ds = load_dataset("openslr/librispeech_asr", "clean", split="train.100")
+    ds = ds.shuffle(seed=seed)
+    ds = ds.cast_column("audio", Audio(sampling_rate=sample_rate, num_channels=nchannels))
+    return ds
+
+
 @torch.inference_mode()
-def generate_test_data(enc:nn.Module, dec:nn.Module, rvq:RVQ, is24:bool):
-    shapes      = [24000, 48000, 9999, 33333]
-    nin         = 1 if is24 else 2
-    rate        = "24khz" if is24 else "48khz"
+def generate_test_data(enc:nn.Module, dec:nn.Module, rvq:RVQ, is24:bool, seed:int):    
+    rate    = 24000 if is24 else 48000
+    nin     = 1 if is24 else 2
+    tag     = "24khz" if is24 else "48khz"
+    ds      = iter(librispeech_stream(sample_rate=rate, nchannels=nin, seed=seed))
+    shapes  = [48000, 24000, 55555, 47589]
+
     for shape in shapes:
-        x       = torch.randn(1,nin,shape)
-        out0    = enc(x)
-        out1    = dec(out0)
-        x.permute(0,2,1).contiguous().numpy().tofile(f"encodec_{rate}_orig_{shape}.dat")
-        out0.numpy().tofile(f"encodec_{rate}_feats_{shape}.dat")
-        out1.permute(0,2,1).contiguous().numpy().tofile(f"encodec_{rate}_decod_{shape}.dat")
+        while True:
+            example = next(ds)
+            samples = example["audio"].get_all_samples()
+            audio   = samples.data # [C, T]
+            print(audio.shape)
+            if audio.shape[-1] < shape: continue
+            print("Got one")
+            x = audio[:, :shape].unsqueeze(0) # [1, C, T]
+            out0    = enc(x)
+            out1    = dec(out0)
+            x.permute(0,2,1).contiguous().numpy().tofile(f"encodec_{tag}_orig_{shape}.dat")
+            out0.numpy().tofile(f"encodec_{tag}_feats_{shape}.dat")
+            out1.permute(0,2,1).contiguous().numpy().tofile(f"encodec_{tag}_decod_{shape}.dat")
+            break
 
 
 if __name__ == '__main__':
     print("Starting")
-    is24 = True
+    is24 = False
     enc  = EncodecEncoder(is24=is24).eval()
     dec  = EncodecDecoder(is24=is24).eval()
     rvq  = RVQ(128, 1024, 32 if is24 else 16)
@@ -308,4 +327,4 @@ if __name__ == '__main__':
     # save_cpp(enc, "encoder48.cpp", "encoder48")
     # save_cpp(dec, "decoder48.cpp", "decoder48")
     # write_to_cpp_file(rvq.codebooks.numpy().ravel(), "rvq48.cpp", "rvq48") 
-    # generate_test_data(enc, dec, rvq, is24)
+    generate_test_data(enc, dec, rvq, is24, 15000)

@@ -12,8 +12,10 @@
 
 using MatrixXf      = Eigen::Matrix<float, -1, -1, Eigen::RowMajor>;
 using MatrixXu16    = Eigen::Matrix<uint16_t, -1, -1, Eigen::RowMajor>;
-using VectorXf      = Eigen::Vector<float, -1>;
+using VectorXf      = Eigen::Matrix<float, -1, 1>;
+using RowVectorXf   = Eigen::Matrix<float, 1, -1>;
 using ArrayXf       = Eigen::Array<float, -1, 1>;
+using RowArrayXf    = Eigen::Array<float, 1, -1>;
 
 //----------------------------------------------------------------------------------------------------------------
 
@@ -834,7 +836,7 @@ namespace encodec
 
         impl(sample_rates rate_, std::span<const float> weights, std::span<const float> rvq_weights)
         : rate{rate_},
-          b0(nc(),  32, 7, 1, causal(), norm()),
+          b0(nc(), 32, 7, 1, causal(), norm()),
           b1( 32,  64, 2, causal(), norm()),
           b2( 64, 128, 4, causal(), norm()),
           b3(128, 256, 5, causal(), norm()),

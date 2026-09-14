@@ -94,18 +94,18 @@ int main()
     // encoder enc(RATE_48KHZ, get_encoder48_weights(), get_rvq48_weights());
     // decoder dec(RATE_48KHZ, get_decoder48_weights(), get_rvq48_weights());
 
-    printf("Testing on birch canoe...\n");
-    const char* input = "original.dat";
-    test_birch_canoe(enc, dec, BPS_24000, input);
-    test_birch_canoe(enc, dec, BPS_12000, input);
-    test_birch_canoe(enc, dec, BPS_6000, input);
-    test_birch_canoe(enc, dec, BPS_3000, input);
-    test_birch_canoe(enc, dec, BPS_1500, input);
-    printf("Testing on birch canoe... Done\n");
+    // printf("Testing on birch canoe...\n");
+    // const char* input = "original.dat";
+    // test_birch_canoe(enc, dec, BPS_24000, input);
+    // test_birch_canoe(enc, dec, BPS_12000, input);
+    // test_birch_canoe(enc, dec, BPS_6000, input);
+    // test_birch_canoe(enc, dec, BPS_3000, input);
+    // test_birch_canoe(enc, dec, BPS_1500, input);
+    // printf("Testing on birch canoe... Done\n");
     
-    // printf("Bench...\n");
-    // bench(enc, dec, BPS_24000);
-    // printf("Bench... Done\n");
+    printf("Bench...\n");
+    bench(enc, dec, BPS_24000);
+    printf("Bench... Done\n");
 
     return 0;
 }
