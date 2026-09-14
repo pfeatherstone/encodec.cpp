@@ -59,9 +59,9 @@ encodec::encoder enc(encodec::RATE_24KHZ, encodec::get_encoder24_weights(), enco
 encodec::decoder dec(encodec::RATE_24KHZ, encodec::get_decoder24_weights(), encodec::get_rvq24_weights());
 
 float audio[24000];
-size_t bps = 24000; // 12000, 6000 or 3000
-std::span<const uint8_t> packet = enc.encode(audio, bps);
-std::span<const float>   audio2 = dec.decode(packet, bps);
+auto  bps{BPS_24000} // BPS_12000, BPS_6000, BPS_3000, BPS_1500
+auto [scale, packet]  = enc.encode(audio, bps);
+auto audio2           = dec.decode(packet, scale, bps);
 ```
 
 ## Notes
