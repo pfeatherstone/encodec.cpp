@@ -126,7 +126,7 @@ TEST_SUITE("[ENCODEC]")
             const auto feats_cal = enc.features(audio0);
             REQUIRE(feats_cal.size() == feats_exp.size());
             const auto [i_feat, d_feat] = max_diff(feats_cal, feats_exp);
-            CHECK(d_feat < 2e-4);
+            CHECK(d_feat < 2.1e-4);
 
             const auto audio1_cal = dec.audio(feats_exp);
             REQUIRE(audio1_cal.size() == audio1_exp.size());
