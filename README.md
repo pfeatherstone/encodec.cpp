@@ -68,7 +68,9 @@ auto audio2           = dec.decode(packet, scale, bps);
 
 * Model weights are compiled into separate libraries, allowing applications to link only the encoder, decoder, and RVQ weights they require.
 
-* You must manually implement streaming for now. Partition your audio into 1s chunks with 10ms overlap. For decoding, use a linear weighting in the overlap regions.
+* For the 48khz model, you must manually implement streaming for now. Partition your audio into 1s chunks with 10ms overlap. For decoding, use a linear weighting in the overlap regions.
+
+* The 48khz model is really poor when inferring on more than 48000 samples without any partioning. Not surprising as it wasn't trained that way.
 
 ## Features
 
