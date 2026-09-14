@@ -1,6 +1,8 @@
 #include <vector>
 #include <algorithm>
 #include <random>
+#include <ostream>
+#include <string_view>
 #include "doctest.h"
 #include <encodec.h>
 
@@ -117,9 +119,6 @@ TEST_SUITE("[ENCODEC]")
 
         for (const auto& [file_orig, file_feats, file_decod] : T::test_datas())
         {
-            INFO(file_orig);
-            INFO(file_feats);
-            INFO(file_decod);
             const std::vector<float> audio0       = load_file<float>(file_orig);
             const std::vector<float> feats_exp    = load_file<float>(file_feats);
             const std::vector<float> audio1_exp   = load_file<float>(file_decod);
