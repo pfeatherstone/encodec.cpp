@@ -14,6 +14,7 @@ set(CPM_SOURCE_CACHE ${CMAKE_SOURCE_DIR}/.cache/cpm CACHE PATH "Directory to cac
 include(cmake/CPM.cmake)
 find_package(AVX)
 find_package(NEON)
+find_package(MDAZ)
 
 CPMAddPackage(
   NAME Eigen3
@@ -116,8 +117,8 @@ if (ENCODEC_BUILD_BENCH)
 
   target_link_libraries(encodec_bench PRIVATE encodec::encodec_all)
   target_compile_options(encodec_bench PRIVATE $<${IS_NOT_MSVC}:-Wall;-Wextra;-Wpedantic;-Werror>)
-  target_compile_options(encodec_bench PRIVATE $<$<AND:${IS_X86},${IS_NOT_MSVC}>:-mdaz-ftz>)
-  target_link_options(encodec_bench PRIVATE $<$<AND:${IS_X86},${IS_NOT_MSVC}>:-mdaz-ftz>)
+  target_compile_options(encodec_bench PRIVATE PRIVATE $<$<BOOL:${MDAZ_FOUND}>:${MDAZ_CFLAGS}>)
+  target_link_options   (encodec_bench PRIVATE PRIVATE $<$<BOOL:${MDAZ_FOUND}>:${MDAZ_LDFLAGS}>)
   target_compile_definitions(encodec_bench PRIVATE ENCODEC_DATA_PATH="${ENCODEC_DATA_PATH}")
 endif()
 
